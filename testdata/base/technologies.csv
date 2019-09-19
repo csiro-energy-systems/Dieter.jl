@@ -1,0 +1,19 @@
+Technologies,Region,Renewable,Dispatchable,Fuel,Efficiency,CarbonContent,FixedCost,OperationMaintainance,VariableCost,OvernightCost,Lifetime,MaxInstallable,MaxEnergy,FuelCost,CO2_price
+lig,DE,0,1,Lignite,0.43,0.399,30000,0,0,1500000,35,-1,-1,5.6,75
+hc,DE,0,1,Hard Coal,0.46,0.337,30000,0,0,1300000,35,-1,-1,8.5,75
+CCGT,DE,0,1,Natural Gas,0.6,0.201,20000,0,0,800000,25,-1,-1,27.9,75
+OCGT,DE,0,1,Natural Gas,0.4,0.201,15000,0,0,400000,25,-1,-1,27.9,75
+oil,DE,0,1,Oil,0.4,0.266,6960,0,0,400000,25,-1,-1,53,75
+wind_off,DE,1,0,Wind Offshore,1,0,80000,0,0,2093000,25,75000,-1,0,0
+pv_sw,DE,1,0,Solar PV,1,0,6375,0,0,425000,25,36500,-1,0,0
+pv_nw,DE,1,0,Solar PV,1,0,6375,0,0,425000,25,43900,-1,0,0
+pv_we,DE,1,0,Solar PV,1,0,6375,0,0,425000,25,53400,-1,0,0
+pv_ea,DE,1,0,Solar PV,1,0,6375,0,0,425000,25,29300,-1,0,0
+pv_ne,DE,1,0,Solar PV,1,0,6375,0,0,425000,25,45200,-1,0,0
+pv_se,DE,1,0,Solar PV,1,0,6375,0,0,425000,25,21100,-1,0,0
+wind_sw,DE,1,0,Wind Onshore,1,0,21500,0,0,1075000,25,34000,-1,0,0
+wind_nw,DE,1,0,Wind Onshore,1,0,21500,0,0,1075000,25,41600,-1,0,0
+wind_we,DE,1,0,Wind Onshore,1,0,21500,0,0,1075000,25,43900,-1,0,0
+wind_ea,DE,1,0,Wind Onshore,1,0,21500,0,0,1075000,25,33500,-1,0,0
+wind_ne,DE,1,0,Wind Onshore,1,0,21500,0,0,1075000,25,58600,-1,0,0
+wind_se,DE,1,0,Wind Onshore,1,0,21500,0,0,1075000,25,24400,-1,0,0
