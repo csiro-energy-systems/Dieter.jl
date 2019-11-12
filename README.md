@@ -3,8 +3,7 @@ To run the model you can use this script:
 using Dieter
 # select your favourite solver
 using Gurobi
-#using CPLEX
-#using Clp
+#using CPLEX #using Clp
 
 datapath = joinpath(pwd(),"testdata")
 

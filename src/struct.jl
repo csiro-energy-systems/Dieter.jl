@@ -1,9 +1,111 @@
-mutable struct DieterModel
-    sets::Dict{Symbol, Array{String,1}}
-    parameters::Dict{Symbol, Any}
-    settings::Dict{Symbol, Any}
-    results::Dict{Symbol, DataFrame}
 
+using JuMP
+"""
+The `def` macro is used to build other macros that can insert the same block of
+Julia code into different parts of a program.
+This is macro is used to generate a standard set of fields inside a model type
+hierarchy. (Original code from InfrastructureModels.jl)
+"""
+macro def(name, definition)
+    return quote
+        macro $(esc(name))()
+            esc($(Expr(:quote, definition)))
+        end
+    end
+end
+
+
+abstract type AbstractDieterModel end
+
+"""
+A macro for adding the basic fields to an AbstractDieterModel type definition
+"""
+@def dm_fields begin
+    model::JuMP.AbstractModel
+
+    data::Dict{String,<:Any}
+
+    sets::Dict{Symbol,Array{String,1}}
+    parameters::Dict{Symbol,<:Any}
+
+    settings::Dict{Symbol,<:Any}
+
+    results::Dict{String,<:Any}
+
+    # ref::Dict{Symbol,<:Any} # reference data
+    # var::Dict{Symbol,<:Any} # JuMP variables
+    # con::Dict{Symbol,<:Any} # JuMP constraint references
+end
+
+mutable struct BaseDieterModel <: AbstractDieterModel @dm_fields end
+
+#=
+ Note: We avoid defining a custom inner constructor method for subtypes of AbstractDieterModel
+ while defining the basic fields using a custom macro @dm_fields.
+ If we want to enforce constraints or invariants on the fields data, we may need an inner constructor.
+ This gives the option to define outer constructors as needed for AbstractDieterModel subtype.
+=#
+
+const current_path = @__DIR__
+
+function InitialiseDieterModel(ModelType::Type, data::Dict{String,T} where T;
+            datapath::String="",
+            jump_model::JuMP.AbstractModel=JuMP.Model(),
+            settings=Dict{Symbol,Any}()
+         )
+
+       @assert ModelType <: AbstractDieterModel
+        # initialise data structures for the model
+
+        sets = Dict{Symbol, Array{String,1}}()
+        parameters = Dict{Symbol, Any}()
+
+        # initialise settings
+
+        default_settings = Dict{Symbol, Any}(
+            :datapath => "",
+            :interest => 0.04,
+            :co2 => 71,
+            :ev => 0,
+            :heat => 0,
+            :H2 => 0,
+            :min_res => 0,
+            :cu_cost => 0,
+            :scen => "Default"
+        )
+        default_settings[:datapath] = datapath
+        # default_settings[:interest] = interest
+
+
+        initial_settings = merge(default_settings, settings)
+
+        # initialise results
+
+        results = Dict{String,Any}()
+        # results = Dict{Symbol,DataFrame}()
+
+        dtrm = ModelType(
+            jump_model,
+            data,
+            sets,
+            parameters,
+            initial_settings,
+            results
+        )
+
+    return dtrm
+end
+
+data_instance = Dict{String,Any}()
+dm = InitialiseDieterModel(BaseDieterModel, data_instance)
+
+
+# mutable struct DieterModel
+    # sets::Dict{Symbol, Array{String,1}}
+    # parameters::Dict{Symbol, Any}
+    # settings::Dict{Symbol, Any}
+    # results::Dict{Symbol, DataFrame}
+#=
     function DieterModel(path::AbstractString;
         settings::Dict{Symbol, Any}=Dict{Symbol, Any}(),
         ev::T1=0,
@@ -33,37 +135,41 @@ mutable struct DieterModel
         self.parameters = Dict{Symbol, Any}()
         self.results = Dict{Symbol, Any}()
 
-        parse_base_technologies!(self, joinpath(path,"base","technologies.csv"))
-        parse_storages!(self, joinpath(path,"base","storages.csv"))
-        parse_load!(self, joinpath(path,"base","load.csv"))
-        parse_availibility!(self,joinpath(path,"base","availability.csv"))
-        calc_base_parameters!(self)
-
-
-        parse_ev_technologies!(self, joinpath(path,"ev","ev.csv"))
-        parse_ev_demand!(self, joinpath(path,"ev","ev_demand.csv"))
-        parse_ev_power!(self, joinpath(path,"ev","ev_power.csv"))
-        calc_quantity!(self, ev)
-
-
-
-        parse_heat!(self, joinpath(path,"heat","heat.csv"))
-        parse_heat_technologies!(self, joinpath(path,"heat","heat_technologies.csv"))
-        parse_buildings!(self, joinpath(path,"heat","buildings.csv"))
-        parse_temperature!(self, joinpath(path,"heat","temperature.csv"))
-        parse_heat_demand!(self, joinpath(path,"heat","heat_demand.csv"))
-        parse_dhw_demand!(self, joinpath(path,"heat","dhw_demand.csv"))
-        calc_hp_cop!(self)
-        calc_heat_demand!(self, heat)
-
-
-
-        parse_h2_technologies!(self, joinpath(path,"h2","h2_technologies.csv"))
-        calc_inv_gas!(self)
-
-
         return self
     end
 
     DieterModel() = new()
 end
+=#
+
+#=
+function parse_data_to_model(dm:AbstractDieterModel)
+        parse_base_technologies!(dm, joinpath(path,"base","technologies.csv"))
+        parse_storages!(dm, joinpath(path,"base","storages.csv"))
+        parse_load!(dm, joinpath(path,"base","load.csv"))
+        parse_availibility!(dm,joinpath(path,"base","availability.csv"))
+        calc_base_parameters!(dm)
+
+
+        parse_ev_technologies!(dm, joinpath(path,"ev","ev.csv"))
+        parse_ev_demand!(dm, joinpath(path,"ev","ev_demand.csv"))
+        parse_ev_power!(dm, joinpath(path,"ev","ev_power.csv"))
+        calc_quantity!(dm, ev)
+
+
+
+        parse_heat!(dm, joinpath(path,"heat","heat.csv"))
+        parse_heat_technologies!(dm, joinpath(path,"heat","heat_technologies.csv"))
+        parse_buildings!(dm, joinpath(path,"heat","buildings.csv"))
+        parse_temperature!(dm, joinpath(path,"heat","temperature.csv"))
+        parse_heat_demand!(dm, joinpath(path,"heat","heat_demand.csv"))
+        parse_dhw_demand!(dm, joinpath(path,"heat","dhw_demand.csv"))
+        calc_hp_cop!(dm)
+        calc_heat_demand!(dm, heat)
+
+
+
+        parse_h2_technologies!(dm, joinpath(path,"h2","h2_technologies.csv"))
+        calc_inv_gas!(dm)
+end
+=#
