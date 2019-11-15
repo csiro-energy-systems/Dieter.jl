@@ -1,11 +1,18 @@
-module Dieter
+# module Dieter
 
-using Reexport
-@reexport using DataFrames, CSV
+# export df_tech, df_load, df_storage, df_avail
+# export dtr
+
+# using Reexport
+using DataFrames
+using CSV
+# using Tables
+# @reexport using DataFrames, CSV
 # using Feather
 # using Arrow
 # using Missings
-@reexport using JuMP
+using JuMP
+# @reexport using JuMP
 using ProgressMeter
 # @reexport using Plots
 # @reexport using ColorSchemes
@@ -14,11 +21,14 @@ using ProgressMeter
 # const _MOI = MathOptInterface
 
 include("struct.jl")
+include("util.jl")
+include("base.jl")
+include("ev.jl")
 
-#
-# include("util.jl")
-# include("base.jl")
-# include("ev.jl")
+include("run.jl")
+
+dfDict = parse_data_to_model!(dtr)
+
 # include("heat.jl")
 # include("p2g.jl")
 # include("model.jl")
@@ -43,4 +53,4 @@ include("struct.jl")
 # c_gradient,
 # create_filter_dict
 
-end # module
+# end # module

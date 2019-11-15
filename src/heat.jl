@@ -1,6 +1,7 @@
 
-function parse_heat!(dtr::DieterModel, path::AbstractString)
-    df = CSV.read(path)
+function parse_heat!(dtr::DieterModel, df::DataFrame)
+# function parse_heat!(dtr::DieterModel, path::AbstractString)
+    # df = CSV.read(path)
     dtr.sets[:BuildingType] = disallowmissing(unique(df[:BuildingType]))
     dtr.sets[:HeatingType] = disallowmissing(unique(df[:HeatingType]))
 
@@ -10,16 +11,18 @@ function parse_heat!(dtr::DieterModel, path::AbstractString)
     return nothing
 end
 
-function parse_heat_technologies!(dtr::DieterModel, path::AbstractString)
-    df = CSV.read(path)
+function parse_heat_technologies!(dtr::DieterModel, df::DataFrame)
+# function parse_heat_technologies!(dtr::DieterModel, path::AbstractString)
+    # df = CSV.read(path)
     params = map_idcol(df)
     merge!(dtr.parameters, params)
 
     return nothing
 end
 
-function parse_buildings!(dtr::DieterModel, path::AbstractString)
-    df = CSV.read(path)
+function parse_buildings!(dtr::DieterModel, df::DataFrame)
+# function parse_buildings!(dtr::DieterModel, path::AbstractString)
+    # df = CSV.read(path)
 
     params = map_idcol(df)
     for (k,v) in params update_dict!(dtr.parameters, k, v) end
@@ -27,22 +30,28 @@ function parse_buildings!(dtr::DieterModel, path::AbstractString)
     return nothing
 end
 
-function parse_temperature!(dtr::DieterModel, path::AbstractString)
-    params = CSV.read(path) |> map_dfheader_to_col
+function parse_temperature!(dtr::DieterModel, df::DataFrame)
+# function parse_temperature!(dtr::DieterModel, path::AbstractString)
+    # params = CSV.read(path) |> map_dfheader_to_col
+    params = map_dfheader_to_col(df)
     update_dict!(dtr.parameters, :Temperature, params)
 
     return nothing
 end
 
-function parse_heat_demand!(dtr::DieterModel, path::AbstractString)
-    params = CSV.read(path) |> map_dfheader_to_col
+function parse_heat_demand!(dtr::DieterModel, df::DataFrame)
+# function parse_heat_demand!(dtr::DieterModel, path::AbstractString)
+    # params = CSV.read(path) |> map_dfheader_to_col
+    params = map_dfheader_to_col(df)
     update_dict!(dtr.parameters, :HeatDemand, params)
 
     return nothing
 end
 
-function parse_dhw_demand!(dtr::DieterModel, path::AbstractString)
-    params = CSV.read(path) |> map_dfheader_to_col
+function parse_dhw_demand!(dtr::DieterModel, df::DataFrame)
+# function parse_dhw_demand!(dtr::DieterModel, path::AbstractString)
+    # params = CSV.read(path) |> map_dfheader_to_col
+    params = map_dfheader_to_col(df)
     update_dict!(dtr.parameters, :HotwaterDemand, params)
 
     return nothing
@@ -65,11 +74,14 @@ function calc_hp_cop!(dtr::DieterModel)
     end
 
     dtr.parameters[:COP] = cop
+
+    return nothing
 end
 
 
-function calc_heat_demand!(dtr::DieterModel, heat::Number)
-
+function calc_heat_demand!(dtr::DieterModel)
+# function calc_heat_demand!(dtr::DieterModel, heat::Number)
+    heat = dtr.settings[:heat]
     heat_demand = Dict{Tuple{String, String}, Array{Float64,1}}()
     total_share = heat/100
 
@@ -82,4 +94,6 @@ function calc_heat_demand!(dtr::DieterModel, heat::Number)
     end
 
     dtr.parameters[:HeatConsumption] = heat_demand
+
+    return nothing
 end

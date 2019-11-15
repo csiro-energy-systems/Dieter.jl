@@ -1,5 +1,6 @@
-function parse_h2_technologies!(dtr::DieterModel, path::AbstractString)
-    df = CSV.read(path)
+function parse_h2_technologies!(dtr::DieterModel, df::DataFrame)
+# function parse_h2_technologies!(dtr::DieterModel, path::AbstractString)
+    # df = df::DataFrame.read(path)
     dtr.sets[:H2Technologies] = disallowmissing(unique(df[:H2Technologies]))
 
     dtr.sets[:P2G] = disallowmissing([row[:H2Technologies] for row in eachrow(df)
@@ -25,4 +26,6 @@ function calc_inv_gas!(dtr::DieterModel)
 
     dict = Dict(t => oc[t]*annuity(i, lt[t]) for t in T)
     for (k,v) in dict update_dict!(dtr.parameters[:InvestmentCost], k, v) end
+
+    return nothing
 end
