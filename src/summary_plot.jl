@@ -4,8 +4,8 @@ function get_result(rdir::AbstractString, var::Union{String, Symbol}; filter_by:
     df = joinpath(rdir,String(var)*".feather") |> Feather.read
 
     for n in names(df)
-        if typeof(df[n]) <: Arrow.BitPrimitive
-            df[n] = df[n] |> collect
+        if typeof(df[!,n]) <: Arrow.BitPrimitive
+            df[!,n] = df[!,n] |> collect
         end
     end
 
@@ -56,21 +56,22 @@ function plot_generation_investments(rdir::AbstractString,
     sort!(renewable, [:min_res, sector])
 
     renewable = by(renewable, [:min_res, sector, :fuel], :Value => sum)
+    # Note: The above line creates a column-name "Value_sum" in the results.
 
 
     plt = plot(legend=:topleft)
-    fuels = unique(renewable[:fuel])
-    len_sector = unique(capacity[sector]) |> length
+    fuels = unique(renewable[!,:fuel])
+    len_sector = unique(capacity[!,sector]) |> length
 
     for f in fuels
         df = renewable[renewable.fuel .== f, :]
         c = c_gradient(color_dict[f], len_sector) |> permutedims
-        x = df[:min_res]
-        y =  df[:Value_sum]
-        g = df[sector]
+        x = df[!,:min_res]
+        y =  df[!,:Value_sum]
+        g = df[!,sector]
         l = vcat(f, fill("", len_sector-1)) |> permutedims
         t = "Generation Capacity"
-        if sum(df[:Value_sum]) > 0
+        if sum(df[!,:Value_sum]) > 0
             plot!(x, y; group=g, c=c, label=l, width=2, title=t, grid=false, kwargs...)
         end
     end
@@ -99,21 +100,21 @@ function plot_storage_investments(rdir::AbstractString,
     end
 
     plt = plot(legend=:topleft)
-    len_sector = unique(storage_power[sector]) |> length
+    len_sector = unique(storage_power[!,sector]) |> length
 
     storage_power = by(storage_power, [:min_res, sector], :Value => sum)
-    x = storage_power[:min_res]
-    y = storage_power[:Value_sum]
-    g = storage_power[sector]
+    x = storage_power[!,:min_res]
+    y = storage_power[!,:Value_sum]
+    g = storage_power[!,sector]
     c = c_gradient(color_dict["Storages"], len_sector)
     plt = plot(x, y; group=g, color=permutedims(c), width=2,
         title="Storage Power", legend=false, grid=false, kwargs...)
 
     if !isempty(p2g)
         p2g = by(p2g, [:min_res, sector], :Value => sum)
-        x = p2g[:min_res]
-        y = p2g[:Value_sum]
-        g = p2g[sector]
+        x = p2g[!,:min_res]
+        y = p2g[!,:Value_sum]
+        g = p2g[!,sector]
         c = c_gradient(color_dict["Hydrogen"], len_sector)
         plot!(plt, x, y; group=g, color=permutedims(c), width=2,
             label="Power to gas", legend=false, grid=false, linestyle=:dash)
@@ -121,18 +122,18 @@ function plot_storage_investments(rdir::AbstractString,
 
     if !isempty(g2p)
         g2p = by(g2p, [:min_res, sector], :Value => sum)
-        x = g2p[:min_res]
-        y = g2p[:Value_sum]
-        g = g2p[sector]
+        x = g2p[!,:min_res]
+        y = g2p[!,:Value_sum]
+        g = g2p[!,sector]
         c = c_gradient(color_dict["Hydrogen"], len_sector)
         plot!(plt, x,y; group=g, color=permutedims(c), width=2,
             label="Gas to Power", legend=false, grid=false, linestyle=:dot)
     end
 
     storage_energy = by(storage_energy, [:min_res, sector], :Value => sum)
-    x = storage_energy[:min_res]
-    y = storage_energy[:Value_sum]
-    g = storage_energy[sector]
+    x = storage_energy[!,:min_res]
+    y = storage_energy[!,:Value_sum]
+    g = storage_energy[!,sector]
     c = c_gradient(color_dict["Storages"], len_sector)
     plt2 = plot(x, y; group=g, color=permutedims(c), width=2, legend=:topleft,
         title="Storage Energy", grid=false, kwargs...)
@@ -144,7 +145,7 @@ function plot_storage_investments(rdir::AbstractString,
     #     g = gs[sector]
     #     c = c_gradient(color_dict["Hydrogen"], len_sector)
     #     plot!(plt2, x,y; group=g, color=permutedims(c), width=2,
-    #         label="H2 Storage", legend=false, grid=false, linestyle=:dash)
+    #         label="h2 Storage", legend=false, grid=false, linestyle=:dash)
     # end
 
     return plt, plt2
@@ -161,11 +162,11 @@ function plot_curtailment(rdir::AbstractString,
     sort!(cu, [:min_res, sector])
 
     plt = plot(legend=false)
-    len_sector = unique(cu[sector]) |> length
+    len_sector = unique(cu[!,sector]) |> length
 
-    x = cu[:min_res]
-    y = cu[:relative_curtailment]
-    g = cu[sector]
+    x = cu[!,:min_res]
+    y = cu[!,:relative_curtailment]
+    g = cu[!,sector]
     c = c_gradient(color_dict["Curtailment"], len_sector)
     plt = plot(x, y; group=g, color=permutedims(c), width=2, legend=:topleft,
         title="Curtailment [%]", grid=false, kwargs...)

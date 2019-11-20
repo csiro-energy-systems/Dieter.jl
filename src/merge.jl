@@ -26,20 +26,26 @@ const FOLDER_LIST =
     "STO_L",
     "STO_OUT"]
 
-function rm_folders(rdir::AbstractString)
+"""
+Remove subfolders of `rdir`, the results directory.
+Note that the default is for individual variable data files to be saved to the directory
+".../<save_name>/single_results/<name>"
+when the function save_results(dtr::DieterModel,"<save_name>") has been called.
+"""
+function rm_folders(rdir::AbstractString; singledir::AbstractString="single_results")
     for folder in FOLDER_LIST
-        path = joinpath(rdir,folder)
-        isdir(path) && rm(joinpath(rdir,folder), recursive=true)
+        path = joinpath(rdir,singledir,folder)
+        isdir(path) && rm(path, recursive=true)
     end
 end
 
 
-function merge_results(rdir::AbstractString)
+function merge_results(rdir::AbstractString; singledir::AbstractString="single_results")
 
     prog = Progress(length(FOLDER_LIST), 0.01, "Merging results...   ", 40)
 
     for folder in FOLDER_LIST
-        f = joinpath(rdir, "single_results", folder)
+        f = joinpath(rdir, singledir, folder)
         if isdir(f)
             dfs = [Feather.read(joinpath(f,file))
                 for file in readdir(f) if rsplit(file,".";limit=2)[end] == "feather"]
@@ -49,7 +55,7 @@ function merge_results(rdir::AbstractString)
         next!(prog)
     end
 
-    nothing
+    return nothing
 end
 
 function join_dfs(arr::Vector{DataFrame}; on::Array{Symbol, 1})
@@ -62,10 +68,10 @@ function join_dfs(arr::Vector{DataFrame}; on::Array{Symbol, 1})
     return merge_df
 end
 
-function need_to_merge(rdir::AbstractString)
+function need_to_merge(rdir::AbstractString; singledir::AbstractString="single_results")
 
     for f in FOLDER_LIST
-        p = joinpath(rdir, "single_results", f)
+        p = joinpath(rdir, singledir, f)
         pp = readdir(p)
         m = maximum([mtime(joinpath(p,x)) for x in pp])
         merged_file = joinpath(rdir, f*".feather")
@@ -112,8 +118,8 @@ function create_generation_summary(rdir::AbstractString)
     gen_by_res = by(g, vcat(COLS,:renewable), Generation_by_res = :Value => sum)
     gen_by_res= unstack(gen_by_res,  :renewable, :Generation_by_res)
     rename!(gen_by_res, Dict(Symbol(:false) => :conventional, Symbol(:true) => :renewable))
-
     push!(gen_summary, gen_by_res)
+
     push!(gen_summary, by(cu, COLS, Curtailment = :Value => sum))
 
     push!(gen_summary, by(ev_charge, COLS, Charged_by_ev = :Value => sum))
@@ -129,11 +135,11 @@ function create_generation_summary(rdir::AbstractString)
 
     summary_generation = join_dfs(gen_summary, on=COLS)
 
-    summary_generation[:res_share] =
-        summary_generation[:renewable].*100 ./ summary_generation[:Generation_total]
+    summary_generation[!,:res_share] =
+        summary_generation[!,:renewable].*100 ./ summary_generation[!,:Generation_total]
 
-    summary_generation[:relative_curtailment] =
-        summary_generation[:Curtailment].*100 ./ summary_generation[:Generation_total]
+    summary_generation[!,:relative_curtailment] =
+        summary_generation[!,:Curtailment].*100 ./ summary_generation[!,:Generation_total]
 
     Feather.write(joinpath(rdir,"summary_generation.feather"), summary_generation)
     CSV.write(joinpath(rdir,"summary_generation.csv"), summary_generation)
@@ -181,5 +187,5 @@ function post_process_results(rdir::AbstractString)
         println("Did not find any new files.")
     end
 
-    nothing
+    return nothing
 end

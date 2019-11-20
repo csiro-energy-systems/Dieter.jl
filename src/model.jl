@@ -2,7 +2,7 @@
 const infeas_cost = 1000
 
 
-function solve_model!(dtr::DieterModel,
+function build_model!(dtr::DieterModel,
     solver::OptimizerFactory;
     nthhour::Int=1)
 
@@ -11,7 +11,7 @@ function solve_model!(dtr::DieterModel,
     Hours = collect(1:nthhour:8760)
     corr_factor = length(Hours)/8760
 
-    H2Demand = (dtr.settings[:h2]*1e6)/8760
+    H2Demand = coalesce((dtr.settings[:h2]*1e6)/8760,0)
     min_res = dtr.settings[:min_res]
 
     Technologies = dtr.sets[:Technologies]
@@ -323,9 +323,19 @@ function solve_model!(dtr::DieterModel,
 
     next!(prog)
 
-    @info "Start optimization"
-    optimize!(m)
+    dtr.model = m
 
+    return dtr
+end
+
+function solve_model!(dtr::DieterModel)
+    @info "Start optimization"
+    optimize!(dtr.model)
+
+    return dtr
+end
+
+function generate_results!(dtr::DieterModel)
     @info "Storing results"
 
     vars = [
@@ -359,9 +369,14 @@ function solve_model!(dtr::DieterModel,
         :HEAT_INF => [:BU, :HP, :Hours]
     ]
 
-    dtr.results = Dict(v[1] => convert_jump_container_to_df(value.(m[v[1]]), dim_names=v[2]) for v in vars)
+    m = dtr.model
 
-    sum(dtr.results[:G_INF][:Value]) > 0 && @warn "Problem might be infeasable"
+    var_dict = m.obj_dict
 
-    return dtr.results
+    dtr.results = Dict(v[1] => convert_jump_container_to_df(value.(var_dict[v[1]]), dim_names=v[2]) for v in vars)
+    # dtr.results = [convert_jump_container_to_df(value.(var_dict[v[1]]), dim_names=v[2]) for v in vars]
+
+    sum(dtr.results[:G_INF][!, :Value]) > 0 && @warn "Problem might be infeasable"
+
+    return nothing
 end

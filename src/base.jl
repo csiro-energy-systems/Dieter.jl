@@ -17,7 +17,8 @@ function parse_base_technologies!(dtr::DieterModel, df::DataFrame)
     dtr.sets[:NonDispatchable] = disallowmissing([row[:Technologies]
         for row in eachrow(df) if row[:Dispatchable] == 0])
 
-    params = map_idcol(df, skip=[:Region, :Renewable, :Dispatchable])
+    # params = map_idcol(df, skip=[:Region, :Renewable, :Dispatchable])
+    params = map_idcol(df, skip=Symbol[])
     merge!(dtr.parameters, params)
 
     return nothing
@@ -37,7 +38,7 @@ end
 function parse_load!(dtr::DieterModel, df::DataFrame)
 # function parse_load!(dtr::DieterModel, path::AbstractString)
     # df = CSV.read(path)
-    dtr.parameters[:Load] = disallowmissing(df[!,:Load])
+    dtr.parameters[:Load] = disallowmissing(df[!,:Load])  ## TODO ?? Construct as Dict, not array ?
 
     return nothing
 end

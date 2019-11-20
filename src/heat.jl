@@ -2,8 +2,8 @@
 function parse_heat!(dtr::DieterModel, df::DataFrame)
 # function parse_heat!(dtr::DieterModel, path::AbstractString)
     # df = CSV.read(path)
-    dtr.sets[:BuildingType] = disallowmissing(unique(df[:BuildingType]))
-    dtr.sets[:HeatingType] = disallowmissing(unique(df[:HeatingType]))
+    dtr.sets[:BuildingType] = disallowmissing(unique(df[!,:BuildingType]))
+    dtr.sets[:HeatingType] = disallowmissing(unique(df[!,:HeatingType]))
 
     params = map_idcol(df, id_cols=2)
     merge!(dtr.parameters, params)

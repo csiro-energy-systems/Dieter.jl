@@ -18,38 +18,47 @@ function add_info!(dtr::DieterModel)
 
     for (k,df) in r
         for s in [:min_res, :ev, :heat, :h2, :nthhour, :scen]
-            df[s] = dtr.settings[s]
+            if !(dtr.settings[s] |> ismissing)
+                df[!,s] .= dtr.settings[s]
+            else
+                @debug "Setting missing column $(s) to have entries with value -1"
+                df[!,s] .= -1
+            end
         end
-        df[:Value] = df[:Value] ./ 1000
+        if !isempty(df)
+            df[!,:Value] = df[!,:Value] ./ 1000
+        end
     end
 
     for k  in [:N, :G]
-        r[k][:fuel] = [dtr.parameters[:Fuel][x] for x in r[k][:Technologies]]
-        r[k][:renewable] = [dtr.parameters[:Renewable][x] == 1 for x in r[k][:Technologies]]
-        r[k][:dispatchable] = [dtr.parameters[:Dispatchable][x] == 1 for x in r[k][:Technologies]]
+        r[k][!,:fuel] = [dtr.parameters[:Fuel][x] for x in r[k][!,:Technologies]]
+        r[k][!,:renewable] = [dtr.parameters[:Renewable][x] == 1 for x in r[k][!,:Technologies]]
+        r[k][!,:dispatchable] = [dtr.parameters[:Dispatchable][x] == 1 for x in r[k][!,:Technologies]]
     end
 
 
     return dtr
 end
 
-
-function save_results(dtr::DieterModel, rdir::AbstractString)
+"""
+Save the results of the solved DieterModel `dtr` to `<rdir>/<singledir>/`
+"""
+function save_results(dtr::DieterModel, rdir::AbstractString; singledir::AbstractString="single_results")
 
     add_info!(dtr)
 
-    min_res = dtr.settings[:min_res]
-    ev = dtr.settings[:ev]
-    heat = dtr.settings[:heat]
-    h2 = dtr.settings[:h2]
-    nthhour = dtr.settings[:nthhour]
     scen = dtr.settings[:scen]
+    min_res = dtr.settings[:min_res]
+    ev = coalesce(dtr.settings[:ev],"NUL")
+    heat = coalesce(dtr.settings[:heat],"NUL")
+    h2 = coalesce(dtr.settings[:h2],"NUL")
+    nthhour = dtr.settings[:nthhour]
 
-    fn = "-scen_$(scen)-res_$(min_res)%-ev_$(ev)-heat_$(heat)%-h2_$(h2)twh-hour_$(nthhour).csv"
-    fn2 = "-scen_$(scen)-res_$(min_res)%-ev_$(ev)-heat_$(heat)%-h2_$(h2)twh-hour_$(nthhour).feather"
+    fn  = "-scen_$(scen)-res_$(min_res)%-ev_$(ev)-heat_$(heat)%-h2_$(h2)twh-nthhour_$(nthhour).csv"
+    fn2 = "-scen_$(scen)-res_$(min_res)%-ev_$(ev)-heat_$(heat)%-h2_$(h2)twh-nthhour_$(nthhour).feather"
 
     create_folder(rdir)
-    srdir = create_folder(joinpath(rdir,"single_results"))
+    srdir = create_folder(joinpath(rdir,singledir))
 
     for (k,v) in dtr.results
         if !isempty(v)
@@ -59,6 +68,7 @@ function save_results(dtr::DieterModel, rdir::AbstractString)
             # CSV.write(fp, v)
 
             fp2 = joinpath(path, string(k)*fn2)
+            # fp2 = joinpath(srdir, string(k)*fn2)
             Feather.write(fp2, v)
         end
     end
@@ -67,5 +77,5 @@ function save_results(dtr::DieterModel, rdir::AbstractString)
     fpath = joinpath(rdir, "load.feather")
     isfile(fpath) || Feather.write(fpath, DataFrame(Load=dtr.parameters[:Load]))
 
-    nothing
+    return nothing
 end

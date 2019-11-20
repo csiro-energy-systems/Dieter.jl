@@ -5,8 +5,8 @@ function parse_file(file::String; dataname::String="")
     filetype=split(lowercase(file), '.')[end]
     if filetype == "csv"
         df = CSV.read(file)
-    elseif filetype == "sqlite"
-        df = DataFrame() ## TODO
+    # elseif filetype == "sqlite" ## TODO
+        # df = DataFrame() 
     else
         error("Unrecognised filetype")
     end
