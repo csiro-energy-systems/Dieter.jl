@@ -1,20 +1,31 @@
 To run the model you can use this script:
 ```julia
 using Dieter
+using JuMP
+
 # select your favourite solver
 using Gurobi
-#using CPLEX #using Clp
+solver = with_optimizer(Gurobi.Optimizer)
+# using CPLEX
+# solver = with_optimizer(CPLEX.Optimizer)
+# using Clp
+# solver = with_optimizer(Clp.Optimizer)
 
 datapath = joinpath(pwd(),"testdata")
 
 # set the Dieter parameters
-resshare = 100
-ev = 0
-heat = 0
-h2 = 0
+dtr = InitialiseDieterModel(DieterModel, Dict{String,Any}())
+dtr.settings[:datapath] = datapath
+dtr.settings[:min_res] = 50
 
-dieter = DieterModel(datapath, ev=ev, heat=heat, h2=h2, res_share=resshare)
-solve_model!(dieter, with_optimizer(Gurobi.Optimizer))
+initialise_data_file_dict!(dtr)
+check_data_files_exist(dtr.data["files"])
 
-save_results(dieter, "results_of_test_case")
+dfDict = parse_data_to_model!(dtr)
+
+build_model!(dtr,solver)
+solve_model!(dtr)
+
+generate_results!(dtr)
+save_results(dtr, "results_of_test_case")
 ```

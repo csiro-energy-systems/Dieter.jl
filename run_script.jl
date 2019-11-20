@@ -8,7 +8,7 @@ using ColorSchemes
 using Plots
 
 # %% Instantiate data model
-projectpath = "/Users/fos08b/Documents/Projects/ESM"
+projectpath = "~/Documents/Projects/ESM"
 datapath = joinpath(projectpath,"Dieter.jl/testdata/")
 resultspath = joinpath(projectpath,"Dieter.jl/results_of_test_case/")
 
