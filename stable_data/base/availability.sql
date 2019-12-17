@@ -1,0 +1,1 @@
+SELECT * FROM Availability_Traces
