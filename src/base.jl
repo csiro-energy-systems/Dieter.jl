@@ -95,6 +95,10 @@ function calc_mc!(dtr::DieterModel)
     marginalcost = Dict(t => fc[t]/eff[t] + (cc[t]*co2)/eff[t] + vc[t] for t in T)
     update_dict!(dtr.parameters, :MarginalCost, marginalcost)
 
+    S = dtr.sets[:Storages]
+    marginalcost_sto = Dict(s => fc[s]/eff[s] + vc[s] for s in S)
+    update_dict!(dtr.parameters, :MarginalCost, marginalcost_sto)
+
     return nothing
 end
 

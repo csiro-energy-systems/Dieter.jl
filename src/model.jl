@@ -1,31 +1,52 @@
+## This file is part of Dieter.jl : Model definition
 
-const infeas_cost = 1000
+const hoursInYear = 8760
 
-
+"""
+Build the JuMP model describing the optimization problem, specifying the `solver` to use.
+The `nthhour` parameter should be 0 for hourly steps, 1 for 2-hourly steps and
+-1 for half-hourly steps. The data must match the time-steps of the `nthhour` parameter.
+"""
 function build_model!(dtr::DieterModel,
     solver::OptimizerFactory;
-    nthhour::Int=1)
+    nthhour::Int=0)
 
     dtr.settings[:nthhour] = nthhour
 
-    Hours = collect(1:nthhour:8760)
-    corr_factor = length(Hours)/8760
+    periods = round(Int,hoursInYear*2.0^(-nthhour))
+    Hours = Base.OneTo(periods)
+    corr_factor = length(Hours)/hoursInYear
 
-    H2Demand = coalesce((dtr.settings[:h2]*1e6)/8760,0)
+    H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
     min_res = dtr.settings[:min_res]
 
-    Technologies = dtr.sets[:Technologies]
-    Storages = dtr.sets[:Storages]
-    Renewables = dtr.sets[:Renewables]
-    Conventional = dtr.sets[:Conventional]
-    Dispatchable = dtr.sets[:Dispatchable]
-    NonDispatchable = dtr.sets[:NonDispatchable]
+    # Set definitions
+
+    Technologies = dtr.sets[:Technologies]  # Generation technologies
+    Storages = dtr.sets[:Storages]          # Storage technologies
+
+    Renewables = dtr.sets[:Renewables]           # Renewable generation technologies
+    Conventional = dtr.sets[:Conventional]       # Conventional generation technologies
+    Dispatchable = dtr.sets[:Dispatchable]       # Dispatchable generation technologies
+    NonDispatchable = dtr.sets[:NonDispatchable] # Non-dispatchable generation technologies
+
+    # Nodes = dtr.sets[:Nodes]
+
+    # Lines = dtr.sets[:Lines]
+
+    ## Electric Vehicles
     EV = dtr.sets[:ElectricVehicles]
-    BU = dtr.sets[:BuildingType]
-    HP = dtr.sets[:HeatingType]
+
+    ## Building heating
+    BU = dtr.sets[:BuildingType]  # Building archtypes
+    HP = dtr.sets[:HeatingType]   # Heating combination type
+
+    ## Power-to-gas with Hydrogen
     P2G = dtr.sets[:P2G]
     G2P = dtr.sets[:G2P]
     GasStorages = dtr.sets[:GasStorages]
+
+    # Parameter definitions
 
     EvDemand = dtr.parameters[:AbsoluteEvDemand]
     EvPower = dtr.parameters[:AbsoluteEvPower]
@@ -52,13 +73,20 @@ function build_model!(dtr::DieterModel,
     MaxPower = dtr.parameters[:MaxPower]
     Efficiency = dtr.parameters[:Efficiency]
     Load = dtr.parameters[:Load]
+
     CurtailmentCost = dtr.settings[:cu_cost]
+
+    LoadIncreaseCost = dtr.parameters[:LoadIncreaseCost]
+    LoadDecreaseCost = dtr.parameters[:LoadDecreaseCost]
 
     @info "Building Model"
 
     m = Model(solver)
 
     @variable(m, G[Technologies, Hours] >= 0)
+    @variable(m, G_UP[Dispatchable, Hours] >= 0)
+    @variable(m, G_DO[Dispatchable, Hours] >= 0)
+
     @variable(m, CU[NonDispatchable, Hours] >= 0)
     @variable(m, STO_IN[Storages, Hours] >= 0)
     @variable(m, STO_OUT[Storages, Hours] >= 0)
@@ -92,6 +120,9 @@ function build_model!(dtr::DieterModel,
     @objective(m, Min,
 
         sum(MarginalCost[t] * G[t,h] for t in Technologies, h in Hours)
+
+        + sum(LoadIncreaseCost[t] * G_UP[t] for t in Dispatchable, h in Hours)
+        + sum(LoadDecreaseCost[t] * G_DO[t] for t in Dispatchable, h in Hours)
 
         + sum(CurtailmentCost * CU[t,h] for t in NonDispatchable, h in Hours)
 
@@ -129,7 +160,7 @@ function build_model!(dtr::DieterModel,
 
     next!(prog)
 
-    @constraint(m, test, 1 >= 0)
+    # @constraint(m, test, 1 >= 0)
 
     @constraint(m, EnergyBalance[h=Hours],
         sum(G[t,h] for t in Technologies)
@@ -154,11 +185,11 @@ function build_model!(dtr::DieterModel,
         G[t,h] + CU[t,h] == Availability[t][h] * N[t]
         );
 
-    @constraint(m, MaxInstallable[t=Technologies; MaxInstallable[t] >= 0],
+    @constraint(m, MaxInstallableBound[t=Technologies; !(MaxInstallable[t] |> ismissing)],
         N[t] <= MaxInstallable[t]
         );
 
-    @constraint(m, MaxEnergyGenerated[t=Technologies; MaxEnergy[t] >= 0],
+    @constraint(m, MaxEnergyGenerated[t=Technologies; !(MaxEnergy[t] |> ismissing)],
         sum(G[t,h] for h in Hours) <= corr_factor * MaxEnergy[t]
         );
 
@@ -340,6 +371,8 @@ function generate_results!(dtr::DieterModel)
 
     vars = [
         :G => [:Technologies, :Hours],
+        :G_DO => [:Dispatchable, :Hours],
+        :G_UP => [:Dispatchable, :Hours],
         :CU => [:NonDispatchable, :Hours],
         :STO_IN => [:Storages, :Hours],
         :STO_OUT => [:Storages, :Hours],
@@ -373,10 +406,10 @@ function generate_results!(dtr::DieterModel)
 
     var_dict = m.obj_dict
 
-    dtr.results = Dict(v[1] => convert_jump_container_to_df(value.(var_dict[v[1]]), dim_names=v[2]) for v in vars)
+    dtr.results = Dict(v[1] => convert_jump_container_to_df(var_dict[v[1]], dim_names=v[2]) for v in vars)
     # dtr.results = [convert_jump_container_to_df(value.(var_dict[v[1]]), dim_names=v[2]) for v in vars]
 
-    sum(dtr.results[:G_INF][!, :Value]) > 0 && @warn "Problem might be infeasable"
+    sum(dtr.results[:G_INF][!, :Hours]) > 0 && @warn "Problem might be infeasable"
 
     return nothing
 end

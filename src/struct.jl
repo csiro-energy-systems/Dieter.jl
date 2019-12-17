@@ -71,7 +71,7 @@ function InitialiseDieterModel(ModelType::Type, data::Dict{String,T} where T;
             :scen => "Default",
             :datapath => "",
             :interest => 0.04,
-            :co2 => 71,   # Carbon Price
+            :co2 => 0,     # Carbon Price
             :min_res => 0,  # Minimum Renewable Share (%)
             :cu_cost => 0,   # Curtailment Cost
             :ev => 0,
@@ -113,19 +113,46 @@ The default directory structure is:
 │   └── technologies.csv
 ├── ev
 │   ├── ev.csv
-│   ├── ev_demand.csv
-│   └── ev_power.csv
+│   ├── ev__demand.csv
+│   └── ev__power.csv
 ├── h2
-│   └── h2_technologies.csv
+│   └── h2__technologies.csv
 └── heat
     ├── buildings.csv
-    ├── dhw_demand.csv
+    ├── dhw__demand.csv
     ├── heat.csv
-    ├── heat_demand.csv
-    ├── heat_technologies.csv
+    ├── heat__demand.csv
+    ├── heat__technologies.csv
     └── temperature.csv
 """
-function initialise_data_file_dict!(dtr)
+function initialise_data_dir_structure(datapath;remove=false)
+    if !(isdir(datapath))
+        @info "The given input directory \"$datapath\" does not exist. It will be created."
+        # return false
+    end
+
+    datadirs = ["base","ev","h2","heat"]
+
+    for dir in datadirs
+        thispath=joinpath(datapath,dir)
+        if isdir(thispath)
+            @info "Directory \"$dir\" in \"$datapath\"/ already exists, skipping..."
+            continue
+        else
+            @info "Creating directory \"$dir\" in \"$datapath\"/ "
+            mkpath(thispath)
+        end
+    end
+
+    return true
+end
+
+"""
+Initialise the strings giving the file-path references to the model data.
+The argument `sfx` is the file suffix of each model data file.
+Currently, `sfx` can be either "csv" or "sql"
+"""
+function initialise_data_file_dict!(dtr::AbstractDieterModel,sfx::String)
 
     datapath = dtr.settings[:datapath]
 
@@ -134,31 +161,31 @@ function initialise_data_file_dict!(dtr)
     fileDict = dtr.data["files"]
 
     # %% Base
-    fileDict["tech"] = joinpath(datapath,"base","technologies.csv")
-    fileDict["storage"] = joinpath(datapath,"base","storages.csv")
-    fileDict["load"] = joinpath(datapath,"base","load.csv")
-    fileDict["avail"] = joinpath(datapath,"base","availability.csv")
+    fileDict["tech"] = joinpath(datapath,"base","technologies."*sfx)
+    fileDict["storage"] = joinpath(datapath,"base","storages."*sfx)
+    fileDict["load"] = joinpath(datapath,"base","load."*sfx)
+    fileDict["avail"] = joinpath(datapath,"base","availability."*sfx)
 
     # %% EV
     if !(dtr.settings[:ev] |> ismissing)
-        fileDict["ev"] = joinpath(datapath,"ev","ev.csv")
-        fileDict["ev_demand"] = joinpath(datapath,"ev","ev_demand.csv")
-        fileDict["ev_power"] = joinpath(datapath,"ev","ev_power.csv")
+        fileDict["ev"] = joinpath(datapath,"ev","ev."*sfx)
+        fileDict["ev_demand"] = joinpath(datapath,"ev","ev_demand."*sfx)
+        fileDict["ev_power"] = joinpath(datapath,"ev","ev_power."*sfx)
     end
 
     # %% Heat
     if !(dtr.settings[:heat] |> ismissing)
-        fileDict["heat"] = joinpath(datapath,"heat","heat.csv")
-        fileDict["heat_technologies"] = joinpath(datapath,"heat","heat_technologies.csv")
-        fileDict["buildings"] = joinpath(datapath,"heat","buildings.csv")
-        fileDict["temperature"] = joinpath(datapath,"heat","temperature.csv")
-        fileDict["heat_demand"] = joinpath(datapath,"heat","heat_demand.csv")
-        fileDict["dhw_demand"] = joinpath(datapath,"heat","dhw_demand.csv")
+        fileDict["heat"] = joinpath(datapath,"heat","heat."*sfx)
+        fileDict["heat_technologies"] = joinpath(datapath,"heat","heat_technologies."*sfx)
+        fileDict["buildings"] = joinpath(datapath,"heat","buildings."*sfx)
+        fileDict["temperature"] = joinpath(datapath,"heat","temperature."*sfx)
+        fileDict["heat_demand"] = joinpath(datapath,"heat","heat_demand."*sfx)
+        fileDict["dhw_demand"] = joinpath(datapath,"heat","dhw_demand."*sfx)
     end
 
     # %% Hydrogen (h2)
     if !(dtr.settings[:h2] |> ismissing)
-        fileDict["h2"] = joinpath(datapath,"h2","h2_technologies.csv")
+        fileDict["h2"] = joinpath(datapath,"h2","h2_technologies."*sfx)
     end
 
     return dtr
@@ -174,12 +201,39 @@ function check_data_files_exist(fileDict::Dict{String,String})
 
     return true
 end
+
+"Parse a given data file and return the desired data in a `DataFrame`."
+function parse_file(file::String; dataname::String="")
+    filetype=split(lowercase(file), '.')[end]
+    if filetype == "csv"
+        df = CSV.read(file)
+    elseif filetype == "sql" ## TODO
+        # We expect dataname to be the path to a SQLite database file
+        if !(isfile(dataname))
+            @error "The given dataname \"$dataname\" is not a valid file."
+        end
+        try
+            db = SQLite.DB(dataname)
+        catch
+            @error "Opening of SQLite database file \"$dataname\" unsuccessful."
+        end
+        db = SQLite.DB(dataname)
+        queryString = read(file, String)
+        df = SQLite.Query(db,queryString) |> DataFrame
+    else
+        error("Unrecognised filetype (as parsed from the file extension).")
+    end
+
+    return df
+end
+
 # %%
+## TODO ? : Split the parsing to the DataFrame Dict from the model transformations.
 """
 Build the data for the model, returning intermediate `DataFrame`s containing parsed data.
-The function will not parse data where the model setting equals `missing`.
+The function will not parse data where the corresponding model setting equals `missing`.
 """
-function parse_data_to_model!(dtr::AbstractDieterModel)  # datapath::AbstractString
+function parse_data_to_model!(dtr::AbstractDieterModel; dataname::AbstractString="")
 
     datapath = dtr.settings[:datapath]
 
@@ -189,19 +243,19 @@ function parse_data_to_model!(dtr::AbstractDieterModel)  # datapath::AbstractStr
 
     ## Base data
     # e.g. fileDict["tech"] = joinpath(datapath,"base","technologies.csv")
-    dfDict["tech"] = parse_file(fileDict["tech"])
+    dfDict["tech"] = parse_file(fileDict["tech"]; dataname=dataname)
     parse_base_technologies!(dtr, dfDict["tech"])
 
     # e.g. fileDict["storage"] = joinpath(datapath,"base","storages.csv")
-    dfDict["storage"] = parse_file(fileDict["storage"])
+    dfDict["storage"] = parse_file(fileDict["storage"]; dataname=dataname)
     parse_storages!(dtr, dfDict["storage"])
 
     # e.g. fileDict["load"] = joinpath(datapath,"base","load.csv")
-    dfDict["load"] = parse_file(fileDict["load"])
+    dfDict["load"] = parse_file(fileDict["load"]; dataname=dataname)
     parse_load!(dtr, dfDict["load"])
 
     # e.g. fileDict["avail"] = joinpath(datapath,"base","availability.csv")
-    dfDict["avail"] = parse_file(fileDict["avail"])
+    dfDict["avail"] = parse_file(fileDict["avail"]; dataname=dataname)
     parse_availibility!(dtr,dfDict["avail"])
 
     calc_base_parameters!(dtr)
@@ -209,15 +263,15 @@ function parse_data_to_model!(dtr::AbstractDieterModel)  # datapath::AbstractStr
     ## EV
     if !(dtr.settings[:ev] |> ismissing)
         # e.g. fileDict["ev"] = joinpath(datapath,"ev","ev.csv")
-        dfDict["ev"] = parse_file(fileDict["ev"])
+        dfDict["ev"] = parse_file(fileDict["ev"]; dataname=dataname)
         parse_ev_technologies!(dtr, dfDict["ev"])
 
         # e.g. fileDict["ev_demand"] = joinpath(datapath,"ev","ev_demand.csv")
-        dfDict["ev_demand"] = parse_file(fileDict["ev_demand"])
+        dfDict["ev_demand"] = parse_file(fileDict["ev_demand"]; dataname=dataname)
         parse_ev_demand!(dtr, dfDict["ev_demand"])
 
         # e.g. fileDict["ev_power"] = joinpath(datapath,"ev","ev_power.csv")
-        dfDict["ev_power"] = parse_file(fileDict["ev_power"])
+        dfDict["ev_power"] = parse_file(fileDict["ev_power"]; dataname=dataname)
         parse_ev_power!(dtr, dfDict["ev_power"])
 
         calc_ev_quantity!(dtr)
@@ -232,27 +286,27 @@ function parse_data_to_model!(dtr::AbstractDieterModel)  # datapath::AbstractStr
     ## Heat
     if !(dtr.settings[:heat] |> ismissing)
         # e.g. fileDict["heat"] = joinpath(datapath,"heat","heat.csv")
-        dfDict["heat"] = parse_file(fileDict["heat"])
+        dfDict["heat"] = parse_file(fileDict["heat"]; dataname=dataname)
         parse_heat!(dtr, dfDict["heat"])
 
         # e.g. fileDict["heat_technologies"] = joinpath(datapath,"heat","heat_technologies.csv")
-        dfDict["heat_technologies"] = parse_file(fileDict["heat_technologies"])
+        dfDict["heat_technologies"] = parse_file(fileDict["heat_technologies"]; dataname=dataname)
         parse_heat_technologies!(dtr, dfDict["heat_technologies"])
 
         # e.g. fileDict["buildings"] = joinpath(datapath,"heat","buildings.csv")
-        dfDict["buildings"] = parse_file(fileDict["buildings"])
+        dfDict["buildings"] = parse_file(fileDict["buildings"]; dataname=dataname)
         parse_buildings!(dtr, dfDict["buildings"])
 
         # e.g. fileDict["temperature"] = joinpath(datapath,"heat","temperature.csv")
-        dfDict["temperature"] = parse_file(fileDict["temperature"])
+        dfDict["temperature"] = parse_file(fileDict["temperature"]; dataname=dataname)
         parse_temperature!(dtr, dfDict["temperature"])
 
         # e.g. fileDict["heat_demand"] = joinpath(datapath,"heat","heat_demand.csv")
-        dfDict["heat_demand"] = parse_file(fileDict["heat_demand"])
+        dfDict["heat_demand"] = parse_file(fileDict["heat_demand"]; dataname=dataname)
         parse_heat_demand!(dtr, dfDict["heat_demand"])
 
         # e.g. fileDict["dhw_demand"] = joinpath(datapath,"heat","dhw_demand.csv")
-        dfDict["dhw_demand"] = parse_file(fileDict["dhw_demand"])
+        dfDict["dhw_demand"] = parse_file(fileDict["dhw_demand"]; dataname=dataname)
         parse_dhw_demand!(dtr, dfDict["dhw_demand"])
 
         calc_hp_cop!(dtr)
@@ -269,7 +323,7 @@ function parse_data_to_model!(dtr::AbstractDieterModel)  # datapath::AbstractStr
     ## Hydrogen (h2)
     if !(dtr.settings[:h2] |> ismissing)
         # e.g. fileDict["h2"] = joinpath(datapath,"h2","h2_technologies.csv")
-        dfDict["h2"] = parse_file(fileDict["h2"])
+        dfDict["h2"] = parse_file(fileDict["h2"]; dataname=dataname)
         parse_h2_technologies!(dtr, dfDict["h2"])
 
         calc_inv_gas!(dtr)

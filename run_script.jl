@@ -8,9 +8,9 @@ using ColorSchemes
 using Plots
 
 # %% Instantiate data model
-projectpath = "~/Documents/Projects/ESM"
-datapath = joinpath(projectpath,"Dieter.jl/testdata/")
-resultspath = joinpath(projectpath,"Dieter.jl/results_of_test_case/")
+projectpath = joinpath(ENV["HOME"],"Documents/Projects/ESM/Dieter.jl/")
+datapath = joinpath(projectpath,"testdata/")
+rdir = joinpath(projectpath,"results_of_test_case/")
 
 data_instance = Dict{String,Any}()
 dtr = InitialiseDieterModel(DieterModel, data_instance)
@@ -58,7 +58,6 @@ df_summ = summarize_result(dtr,del_zeros=false)
 # %% Save results to file
 # include("save.jl")
 
-rdir = joinpath(projectpath,resultspath)
 save_results(dtr, rdir)
 
 # %% Merge results with other runs
