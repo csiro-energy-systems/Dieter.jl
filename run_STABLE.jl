@@ -1,22 +1,13 @@
 ## Running code and tests for Dieter.jl
 
 # %% Load packages
-<<<<<<< HEAD
-import JuMP
+using JuMP
 import CPLEX
 using Dieter
 
 # using ColorSchemes
 # using Plots
 # using SQLite
-=======
-using JuMP
-using CPLEX
-using Dieter
-using ColorSchemes
-using Plots
-
->>>>>>> 51849720cbbe86ef4144d8e58f86d10de5bea383
 # %% Instantiate data model
 projectpath = joinpath(ENV["HOME"],"Documents/Projects/ESM/Dieter.jl/")
 # datapath = joinpath(projectpath,"testdata/")
@@ -39,7 +30,6 @@ dtr.settings[:h2] = missing
 
 initialise_data_file_dict!(dtr,"sql")
 # dtr.data["files"]
-<<<<<<< HEAD
 check_files_exist(dtr.data["files"])
 
 sql_db_path = joinpath(ENV["HOME"],"Documents/Projects/ESM/DTR.db")
@@ -52,23 +42,6 @@ dfDict = parse_data_to_model!(dtr,dataname=sql_db_path)
 # Construct an optimizer factory
 # solver = JuMP.with_optimizer(Clp.Optimizer)
 # solver = JuMP.with_optimizer(Gurobi.Optimizer)
-=======
-check_data_files_exist(dtr.data["files"])
-
-sql_db_path = "/Users/fos08b/Documents/Projects/ESM/DTR.db"
-
-dfDict = parse_data_to_model!(dtr,dataname=sql_db_path)
-
-# dtr.sets[:Nodes] = NEMdata["Regions"]
-# dtr.sets[:Lines] = NEMdata["Interconnectors"]
-
-# %% Initialise model
-# include("model.jl")
-
-# Construct an optimizer factory
-# solver = with_optimizer(Clp.Optimizer)
-# solver = with_optimizer(Gurobi.Optimizer)
->>>>>>> 51849720cbbe86ef4144d8e58f86d10de5bea383
 solver = JuMP.with_optimizer(CPLEX.Optimizer)
 build_model!(dtr,solver)
 

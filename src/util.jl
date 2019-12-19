@@ -1,5 +1,8 @@
 # This file is part of Dieter: Utility functions
 
+## TODO : Write a function that looks at a DataFrame with a Tuple{N,M} type column.
+## Outputs a new DataFrame with the tuples split into two columns of type N, M resp.
+
 "Given a Dict of keys => filenames, check at files exist"
 function check_files_exist(fileDict::Dict{String,String})
     for (k,v) in fileDict

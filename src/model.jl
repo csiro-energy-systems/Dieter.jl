@@ -15,6 +15,7 @@ function build_model!(dtr::DieterModel,
 
     periods = round(Int,hoursInYear*2.0^(-nthhour))
     Hours = Base.OneTo(periods)
+    Hours2 = collect(2:length(Hours))
     corr_factor = length(Hours)/hoursInYear
 
     H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
@@ -32,10 +33,18 @@ function build_model!(dtr::DieterModel,
 
     Nodes = dtr.sets[:Nodes]
 
+    DemandNodes = ["DE"]  # Fix this.
+
     # Mapping set definitions
     Arcs = dtr.sets[:Arcs]
     Nodes_Techs = dtr.sets[:Nodes_Techs]
     Nodes_Storages = dtr.sets[:Nodes_Storages]
+
+    Nodes_Renew = dtr.sets[:Nodes_Renew]
+    Nodes_Conven = dtr.sets[:Nodes_Conven]
+    Nodes_Dispatch = dtr.sets[:Nodes_Dispatch]
+    Nodes_NonDispatch = dtr.sets[:Nodes_NonDispatch]
+
     Nodes_Levels = dtr.sets[:Nodes_Levels]
     Nodes_Promotes = dtr.sets[:Nodes_Promotes]
 
@@ -88,18 +97,18 @@ function build_model!(dtr::DieterModel,
 
     m = Model(solver)
 
-    @variable(m, G[Technologies, Hours] >= 0)
-    @variable(m, G_UP[Dispatchable, Hours] >= 0)
-    @variable(m, G_DO[Dispatchable, Hours] >= 0)
+    @variable(m, G[Nodes_Techs, Hours] >= 0)
+    @variable(m, G_UP[Nodes_Dispatch, Hours] >= 0)
+    @variable(m, G_DO[Nodes_Dispatch, Hours] >= 0)
 
-    @variable(m, CU[NonDispatchable, Hours] >= 0)
-    @variable(m, STO_IN[Storages, Hours] >= 0)
-    @variable(m, STO_OUT[Storages, Hours] >= 0)
-    @variable(m, STO_L[Storages, Hours] >= 0)
-    @variable(m, N[Technologies] >= 0)
-    @variable(m, N_STO_E[Storages] >= 0)
-    @variable(m, N_STO_P[Storages] >= 0)
-    @variable(m, G_INF[Hours] >= 0)
+    @variable(m, CU[Nodes_NonDispatch, Hours] >= 0)
+    @variable(m, STO_IN[Nodes_Storages, Hours] >= 0)
+    @variable(m, STO_OUT[Nodes_Storages, Hours] >= 0)
+    @variable(m, STO_L[Nodes_Storages, Hours] >= 0)
+    @variable(m, N[Nodes_Techs] >= 0)
+    @variable(m, N_STO_E[Nodes_Storages] >= 0)
+    @variable(m, N_STO_P[Nodes_Storages] >= 0)
+    @variable(m, G_INF[Nodes,Hours] >= 0)
 
     @variable(m, EV_CHARGE[EV, Hours] >= 0)
     @variable(m, EV_DISCHARGE[EV, Hours] >= 0)
@@ -124,17 +133,17 @@ function build_model!(dtr::DieterModel,
 
     @objective(m, Min,
 
-        sum(MarginalCost[t] * G[t,h] for t in Technologies, h in Hours)
+        sum(MarginalCost[n,t] * G[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
 
-        + sum(LoadIncreaseCost[t] * G_UP[t] for t in Dispatchable, h in Hours)
-        + sum(LoadDecreaseCost[t] * G_DO[t] for t in Dispatchable, h in Hours)
+        + sum(LoadIncreaseCost[n,t] * G_UP[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
+        + sum(LoadDecreaseCost[n,t] * G_DO[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
 
-        + sum(CurtailmentCost * CU[t,h] for t in NonDispatchable, h in Hours)
+        + sum(CurtailmentCost * CU[(n,t),h] for (n,t) in Nodes_NonDispatch, h in Hours)
 
-        + sum(infeas_cost * G_INF[h] for h in Hours)
+        + sum(infeas_cost * G_INF[n,h] for n in Nodes, h in Hours)
 
-        + sum(MarginalCost[sto] * (STO_OUT[sto,h] + STO_IN[sto,h])
-            for sto in Storages, h in Hours)
+        + sum(MarginalCost[n,sto] * (STO_OUT[(n,sto),h] + STO_IN[(n,sto),h])
+            for (n,sto) in Nodes_Storages, h in Hours)
 
         + sum(MarginalCost[ev] * EV_DISCHARGE[ev, h]
               + EvFuel[ev] * EV_PHEVFUEL[ev, h]
@@ -146,12 +155,12 @@ function build_model!(dtr::DieterModel,
 
 
         + corr_factor *
-            (sum(InvestmentCost[t] * N[t] for t in Technologies)
-            + sum(InvestmentCostPower[sto] * N_STO_P[sto] for sto in Storages)
-            + sum(InvestmentCostEnergy[sto] * N_STO_E[sto] for sto in Storages)
+            (sum(InvestmentCost[n,t] * N[(n,t)] for (n,t) in Nodes_Techs)
+            + sum(InvestmentCostPower[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages)
+            + sum(InvestmentCostEnergy[n,sto] * N_STO_E[(n,sto)] for (n,sto) in Nodes_Storages)
 
-            + sum(FixedCost[t] * N[t] for t in Technologies)
-            + sum(FixedCost[sto] * 0.5*(N_STO_P[sto] + N_STO_E[sto]) for sto in Storages)
+            + sum(FixedCost[n,t] * N[(n,t)] for (n,t) in Nodes_Techs)
+            + sum(FixedCost[n,sto] * 0.5*(N_STO_P[(n,sto)] + N_STO_E[(n,sto)]) for (n,sto) in Nodes_Storages)
 
             + sum(InvestmentCost[p2g] * N_P2G[p2g] for p2g in P2G)
             + sum(InvestmentCost[g2p] * N_G2P[g2p] for g2p in G2P)
@@ -160,97 +169,96 @@ function build_model!(dtr::DieterModel,
             + sum(FixedCost[p2g] * N_P2G[p2g] for p2g in P2G)
             + sum(FixedCost[g2p] * N_G2P[g2p] for g2p in G2P)
             + sum(FixedCost[gs] * N_GS[gs] for gs in GasStorages)
-            )
+           )
         );
 
     next!(prog)
 
     # @constraint(m, test, 1 >= 0)
 
-    @constraint(m, EnergyBalance[h=Hours],
-        sum(G[t,h] for t in Technologies)
-        + sum(STO_OUT[sto,h] for sto in Storages)
+    @constraint(m, EnergyBalance[n=DemandNodes,h=Hours],
+        sum(G[(n,t),h] for (n,t) in Nodes_Dispatch)
+        ## TODO : Expand to NonDispatchable / Renewables
+        + sum(STO_OUT[(n,sto),h] for (n,sto) in Nodes_Storages)
         + sum(EV_DISCHARGE[ev,h] for ev in EV)
         + sum(H2_G2P[g2p,h] for g2p in G2P)
         ==
-        sum(STO_IN[sto,h] for sto in Storages)
+        sum(STO_IN[(n,sto),h] for (n,sto) in Nodes_Storages)
         + sum(EV_CHARGE[ev,h] for ev in EV)
         + sum(H2_P2G[p2g,h] for p2g in P2G)
         + sum(HEAT_HP[bu,hp,h] for bu in BU, hp in HP)
-        + Load[h]
+        + Load[n,h]
     );
 
     next!(prog)
 
-    @constraint(m, MaxGenerationDisp[t=Dispatchable,h=Hours],
-        G[t,h] <= N[t]
+    @constraint(m, MaxGenerationDisp[(n,t)=Nodes_Dispatch,h=Hours],
+        G[(n,t),h] <= N[(n,t)]
         );
 
-    @constraint(m, MaxGenerationNondisp[t=NonDispatchable,h=Hours],
-        G[t,h] + CU[t,h] == Availability[t][h] * N[t]
+    @constraint(m, MaxGenerationNondisp[(n,t)=Nodes_NonDispatch,h=Hours],
+        G[(n,t),h] + CU[(n,t),h] == Availability[n,t,h] * N[(n,t)]
         );
 
-    @constraint(m, MaxInstallableBound[t=Technologies; !(MaxInstallable[t] |> ismissing)],
-        N[t] <= MaxInstallable[t]
+    @constraint(m, MaxInstallableBound[(n,t)=Nodes_Techs; !(MaxInstallable[n,t] |> ismissing)],
+        N[(n,t)] <= MaxInstallable[n,t]
         );
 
-    @constraint(m, MaxEnergyGenerated[t=Technologies; !(MaxEnergy[t] |> ismissing)],
-        sum(G[t,h] for h in Hours) <= corr_factor * MaxEnergy[t]
+    @constraint(m, MaxEnergyGenerated[(n,t)=Nodes_Techs; !(MaxEnergy[n,t] |> ismissing)],
+        sum(G[(n,t),h] for h in Hours) <= corr_factor * MaxEnergy[n,t]
         );
 
     next!(prog)
 
 
     @constraint(m, MinRES,
-        sum(G[r,h] for r in Renewables, h in Hours)
-        + sum(STO_OUT[sto,h] - STO_IN[sto,h] for sto in Storages, h in Hours)
+        sum(G[(n,r),h] for (n,r) in Nodes_Renew, h in Hours)
+        + sum(STO_OUT[(n,sto),h] - STO_IN[(n,sto),h] for (n,sto) in Nodes_Storages, h in Hours)
         + sum(H2_G2P[g2p,h] - H2_P2G[p2g,h] for p2g in P2G, g2p in G2P, h in Hours)
 
         >=
         (min_res/100) *(
-            sum(G[t,h] for t in Technologies, h in Hours)
-            + sum(STO_OUT[sto,h] - STO_IN[sto,h] for sto in Storages, h in Hours)
+            sum(G[(n,t),h] for (n,t)=Nodes_Techs, h in Hours)
+            + sum(STO_OUT[(n,sto),h] - STO_IN[(n,sto),h] for (n,sto) in Nodes_Storages, h in Hours)
             + sum(H2_G2P[g2p,h] - H2_P2G[p2g,h] for p2g in P2G, g2p in G2P, h in Hours)
             )
         );
 
 
-    @constraint(m, MaxWithdrawStorage[sto=Storages,h=Hours],
-        STO_IN[sto,h] <= N_STO_P[sto]
+    @constraint(m, MaxWithdrawStorage[(n,sto) in Nodes_Storages,h=Hours],
+        STO_IN[(n,sto),h] <= N_STO_P[(n,sto)]
         );
 
-    @constraint(m, MaxGenerationStorage[sto=Storages,h=Hours],
-        STO_OUT[sto,h] <= N_STO_P[sto]
+    @constraint(m, MaxGenerationStorage[(n,sto) in Nodes_Storages,h=Hours],
+        STO_OUT[(n,sto),h] <= N_STO_P[(n,sto)]
         );
 
-    @constraint(m, MaxLevelStorage[sto=Storages,h=Hours],
-        STO_L[sto,h] <= N_STO_E[sto]
+    @constraint(m, MaxLevelStorage[(n,sto) in Nodes_Storages,h=Hours],
+        STO_L[(n,sto),h] <= N_STO_E[(n,sto)]
         );
 
-    @constraint(m, MaxEnergyStorage[sto=Storages; MaxEnergy[sto] >= 0],
-        N_STO_E[sto] <= MaxEnergy[sto]
+    @constraint(m, MaxEnergyStorage[(n,sto) in Nodes_Storages; MaxEnergy[(n,sto)] >= 0],
+        N_STO_E[(n,sto)] <= MaxEnergy[(n,sto)]
         );
 
-    @constraint(m, MaxPowerStorage[sto=Storages; MaxPower[sto] >= 0],
-        N_STO_P[sto] <= MaxPower[sto]
+    @constraint(m, MaxPowerStorage[(n,sto) in Nodes_Storages; MaxPower[(n,sto)] >= 0],
+        N_STO_P[(n,sto)] <= MaxPower[(n,sto)]
         );
 
-    Hours2 = collect(2:length(Hours))
-
-    @constraint(m, StorageBalance[sto=Storages,h=Hours2],
-        STO_L[sto, Hours[h]]
+    @constraint(m, StorageBalance[(n,sto) in Nodes_Storages,h=Hours2],
+        STO_L[(n,sto), Hours[h]]
         ==
-        STO_L[sto, Hours[h-1]]
-        + STO_IN[sto, Hours[h]]*sqrt(Efficiency[sto])
-        - STO_OUT[sto, Hours[h]]/sqrt(Efficiency[sto])
+        STO_L[(n,sto), Hours[h-1]]
+        + STO_IN[(n,sto), Hours[h]]*sqrt(Efficiency[(n,sto)])
+        - STO_OUT[(n,sto), Hours[h]]/sqrt(Efficiency[(n,sto)])
         );
 
-    @constraint(m, StorageBalanceFirstHour[sto=Storages],
-        STO_L[sto,Hours[1]]
+    @constraint(m, StorageBalanceFirstHour[(n,sto) in Nodes_Storages],
+        STO_L[(n,sto),Hours[1]]
         ==
-        STO_L[sto,Hours[end]]
-        + STO_IN[sto,Hours[1]]*sqrt(Efficiency[sto])
-        - STO_OUT[sto,Hours[1]]/sqrt(Efficiency[sto])
+        STO_L[(n,sto),Hours[end]]
+        + STO_IN[(n,sto),Hours[1]]*sqrt(Efficiency[(n,sto)])
+        - STO_OUT[(n,sto),Hours[1]]/sqrt(Efficiency[(n,sto)])
         );
 
     next!(prog)
@@ -375,17 +383,17 @@ function generate_results!(dtr::DieterModel)
     @info "Storing results"
 
     vars = [
-        :G => [:Technologies, :Hours],
-        :G_DO => [:Dispatchable, :Hours],
-        :G_UP => [:Dispatchable, :Hours],
-        :CU => [:NonDispatchable, :Hours],
-        :STO_IN => [:Storages, :Hours],
-        :STO_OUT => [:Storages, :Hours],
-        :STO_L => [:Storages, :Hours],
-        :N => [:Technologies],
-        :N_STO_E => [:Storages],
-        :N_STO_P => [:Storages],
-        :G_INF => [:Hours],
+        :G => [:Nodes_Techs, :Hours],
+        :G_UP => [:Nodes_Dispatch, :Hours],
+        :G_DO => [:Nodes_Dispatch, :Hours],
+        :CU => [:Nodes_NonDispatch, :Hours],
+        :STO_IN => [:Nodes_Storages, :Hours],
+        :STO_OUT => [:Nodes_Storages, :Hours],
+        :STO_L => [:Nodes_Storages, :Hours],
+        :N => [:Nodes_Techs],
+        :N_STO_E => [:Nodes_Storages],
+        :N_STO_P => [:Nodes_Storages],
+        :G_INF => [:Nodes,:Hours],
 
         :EV_CHARGE => [:EV, :Hours],
         :EV_DISCHARGE => [:EV, :Hours],

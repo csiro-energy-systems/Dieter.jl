@@ -175,7 +175,10 @@ end
 function parse_load!(dtr::DieterModel, df::DataFrame)
 # function parse_load!(dtr::DieterModel, path::AbstractString)
     # df = CSV.read(path)
-    dtr.parameters[:Load] = disallowmissing(df[!,:Load])  ## TODO ?? Construct as Dict, not array ?
+    # dtr.parameters[:Load] = disallowmissing(df[!,:Load])  ## TODO ?? Construct as Dict, not array ?
+
+    params = map_idcol(df, [:RegionID, :TimeIndex], skip_cols=Symbol[])
+    for (k,v) in params update_dict!(dtr.parameters, k, v) end
 
     return nothing
 end
@@ -183,8 +186,11 @@ end
 function parse_availibility!(dtr::DieterModel, df::DataFrame)
 # function parse_availibility!(dtr::DieterModel, path::AbstractString)
     # params = CSV.read(path) |> map_dfheader_to_col
-    params = map_dfheader_to_col(df)
-    update_dict!(dtr.parameters, :Availability, params)
+    # params = map_dfheader_to_col(df)
+    # update_dict!(dtr.parameters, :Availability, params)
+
+    params = map_idcol(df, [:RenewRegionID, :TechTypeID, :TimeIndex], skip_cols=Symbol[])
+    for (k,v) in params update_dict!(dtr.parameters, k, v) end
 
     return nothing
 end
@@ -238,9 +244,19 @@ function parse_set_relations!(dtr)
     Technologies = dtr.sets[:Technologies]
     Storages = dtr.sets[:Storages]
 
+    Renewables = dtr.sets[:Renewables]
+    Conventional = dtr.sets[:Conventional]
+    Dispatchable = dtr.sets[:Dispatchable]
+    NonDispatchable = dtr.sets[:NonDispatchable]
+
     # Relation between a node and associated technologies
     rel_node_tech = dtr.data["relations"]["rel_node_tech"]
     dtr.sets[:Nodes_Techs] = tuple2_filter(rel_node_tech, Nodes, Technologies)
+    dtr.sets[:Nodes_Renew] = tuple2_filter(rel_node_tech, Nodes, Renewables)
+    dtr.sets[:Nodes_Conven] = tuple2_filter(rel_node_tech, Nodes, Conventional)
+    dtr.sets[:Nodes_Dispatch] = tuple2_filter(rel_node_tech, Nodes, Dispatchable)
+    dtr.sets[:Nodes_NonDispatch] = tuple2_filter(rel_node_tech, Nodes, NonDispatchable)
+
 
     # Relation between a node and associated storage technologies
     rel_node_storages = dtr.data["relations"]["rel_node_storages"]
