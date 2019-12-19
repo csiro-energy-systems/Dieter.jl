@@ -30,9 +30,14 @@ function build_model!(dtr::DieterModel,
     Dispatchable = dtr.sets[:Dispatchable]       # Dispatchable generation technologies
     NonDispatchable = dtr.sets[:NonDispatchable] # Non-dispatchable generation technologies
 
-    # Nodes = dtr.sets[:Nodes]
+    Nodes = dtr.sets[:Nodes]
 
-    # Lines = dtr.sets[:Lines]
+    # Mapping set definitions
+    Arcs = dtr.sets[:Arcs]
+    Nodes_Techs = dtr.sets[:Nodes_Techs]
+    Nodes_Storages = dtr.sets[:Nodes_Storages]
+    Nodes_Levels = dtr.sets[:Nodes_Levels]
+    Nodes_Promotes = dtr.sets[:Nodes_Promotes]
 
     ## Electric Vehicles
     EV = dtr.sets[:ElectricVehicles]
@@ -59,7 +64,7 @@ function build_model!(dtr::DieterModel,
     MaxLevel = dtr.parameters[:MaxLevel]
     HeatMaxPower = dtr.parameters[:HeatMaxPower]
     StaticEfficiency = dtr.parameters[:StaticEfficiency]
-    Cop = dtr.parameters[:COP]
+    COP = dtr.parameters[:COP]
 
 
     MarginalCost = dtr.parameters[:MarginalCost]
@@ -329,7 +334,7 @@ function build_model!(dtr::DieterModel,
         HEAT_STO_L[bu,hp,h]
         ==
         StaticEfficiency[hp] * HEAT_STO_L[bu,hp,h-nthhour]
-        + Cop[bu,hp][h] * HEAT_HP[bu,hp,h]
+        + COP[bu,hp][h] * HEAT_HP[bu,hp,h]
         - HeatConsumption[bu,hp][h]
         + HEAT_INF[bu,hp,h]
         );
@@ -339,7 +344,7 @@ function build_model!(dtr::DieterModel,
         HEAT_STO_L[bu,hp,Hours[1]]
         ==
         StaticEfficiency[hp] * HEAT_STO_L[bu,hp,Hours[end]]
-        + Cop[bu,hp][Hours[1]] * HEAT_HP[bu,hp,Hours[1]]
+        + COP[bu,hp][Hours[1]] * HEAT_HP[bu,hp,Hours[1]]
         - HeatConsumption[bu,hp][Hours[1]]
         + HEAT_INF[bu,hp,Hours[1]]
         );

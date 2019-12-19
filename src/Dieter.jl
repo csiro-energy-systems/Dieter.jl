@@ -3,13 +3,16 @@ module Dieter
 # %%
 # using Reexport
 using DataFrames
+using DataFramesMeta
 using CSV
 using SQLite
 # using Tables
 # @reexport using DataFrames, CSV
+
 using Feather
 using Arrow  # TODO: review whether Arrow needs to be a dependency
 # using Missings
+
 using JuMP
 # import MathOptInterface
 # const MOI = MathOptInterface
@@ -52,8 +55,9 @@ include("summary_plot.jl")
 # %%
 export DieterModel,
 InitialiseDieterModel,
+create_relation,
 initialise_data_file_dict!,
-check_data_files_exist,
+check_files_exist,
 parse_data_to_model!,
 build_model!,
 solve_model!,

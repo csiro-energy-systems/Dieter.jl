@@ -19,7 +19,7 @@ dtr.settings[:datapath] = datapath
 # fileDict = dtr.data["files"]
 
 initialise_data_file_dict!(dtr)
-check_data_files_exist(dtr.data["files"])
+check_files_exist(dtr.data["files"])
 
 # Modify the :min_res setting over [0,100] and rerun to see comparison.
 dtr.settings[:min_res] = 50

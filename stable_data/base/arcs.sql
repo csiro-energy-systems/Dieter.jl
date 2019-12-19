@@ -1,0 +1,14 @@
+-- This query creates arcs between all nodes by default:
+-- CREATE VIEW Arcs_Def AS
+-- SELECT FromNodes, ToNodes, 1 as IncludeFlag
+-- FROM
+-- (SELECT RegionID as FromNodes, RegionType as FromType
+-- FROM Regions
+-- WHERE RegionType!='RootNode')
+-- JOIN
+-- (SELECT RegionID as ToNodes, RegionType as ToType
+-- FROM Regions
+-- WHERE RegionType!='RootNode')
+-- WHERE FromType = ToType
+-- AND   FromNodes != ToNodes
+SELECT * FROM Arcs_Def

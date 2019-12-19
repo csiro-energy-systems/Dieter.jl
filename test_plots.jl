@@ -1,5 +1,6 @@
-To run the model you can use this script:
-```julia
+
+# Scratch file for testing code
+
 using Dieter
 using JuMP
 
@@ -28,5 +29,3 @@ solve_model!(dtr)
 
 generate_results!(dtr)
 save_results(dtr, "results_of_test_case")
-```
-See the file `run_script.jl` for a fuller example workflow.

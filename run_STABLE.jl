@@ -1,8 +1,8 @@
 ## Running code and tests for Dieter.jl
 
 # %% Load packages
-using JuMP
-using CPLEX
+import JuMP
+import CPLEX
 using Dieter
 
 # using ColorSchemes
@@ -30,22 +30,18 @@ dtr.settings[:h2] = missing
 
 initialise_data_file_dict!(dtr,"sql")
 # dtr.data["files"]
-check_data_files_exist(dtr.data["files"])
+check_files_exist(dtr.data["files"])
 
 sql_db_path = joinpath(ENV["HOME"],"Documents/Projects/ESM/DTR.db")
 
 dfDict = parse_data_to_model!(dtr,dataname=sql_db_path)
-
-# %%
-# dtr.sets[:Nodes] = NEMdata["Regions"]
-# dtr.sets[:Lines] = NEMdata["Interconnectors"]
+# dfDict acccesible as dtr.data["dataframes"]
 
 # %% Initialise model
-# include("model.jl")
 
 # Construct an optimizer factory
-# solver = with_optimizer(Clp.Optimizer)
-# solver = with_optimizer(Gurobi.Optimizer)
+# solver = JuMP.with_optimizer(Clp.Optimizer)
+# solver = JuMP.with_optimizer(Gurobi.Optimizer)
 solver = JuMP.with_optimizer(CPLEX.Optimizer)
 build_model!(dtr,solver)
 

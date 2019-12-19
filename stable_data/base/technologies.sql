@@ -1,6 +1,6 @@
 SELECT
-Technologies.TechTypeID AS Technologies,
 Technologies.RegionID AS Region,
+Technologies.TechTypeID AS Technologies,
 Technologies.CapacityFactor,
 Technologies.FuelCost,
 Technologies.FixedCost,
@@ -29,5 +29,5 @@ FROM
 (
 Technologies JOIN Technology_Types USING (TechTypeID)
 )
-JOIN Regions USING (RegionID) -- Regions JOIN provides CO2price
+LEFT JOIN Region_Scalars USING (RegionID) -- Region_Scalar JOIN provides CO2price
 WHERE Technology_Types.IsStorage=0

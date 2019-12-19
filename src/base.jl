@@ -1,24 +1,161 @@
 
+# %%
+## TODO ? : Split the parsing to the DataFrame Dict from the model transformations.
+"""
+Build the data for the model, returning intermediate `DataFrame`s containing parsed data.
+The function will not parse data where the corresponding model setting equals `missing`.
+"""
+function parse_data_to_model!(dtr::AbstractDieterModel; dataname::AbstractString="")
+
+    datapath = dtr.settings[:datapath]
+
+    fileDict = dtr.data["files"]
+
+    dtr.data["dataframes"] = Dict{String,DataFrame}()
+
+    dfDict = dtr.data["dataframes"]
+
+    ## Base data
+
+    dfDict["nodes"] = parse_file(fileDict["nodes"]; dataname=dataname)
+    parse_nodes!(dtr,dfDict["nodes"])
+
+    # e.g. fileDict["tech"] = joinpath(datapath,"base","technologies.csv")
+    dfDict["tech"] = parse_file(fileDict["tech"]; dataname=dataname)
+    parse_base_technologies!(dtr, dfDict["tech"])
+
+    # e.g. fileDict["storage"] = joinpath(datapath,"base","storages.csv")
+    dfDict["storage"] = parse_file(fileDict["storage"]; dataname=dataname)
+    parse_storages!(dtr, dfDict["storage"])
+
+    # e.g. fileDict["load"] = joinpath(datapath,"base","load.csv")
+    dfDict["load"] = parse_file(fileDict["load"]; dataname=dataname)
+    parse_load!(dtr, dfDict["load"])
+
+    # e.g. fileDict["avail"] = joinpath(datapath,"base","availability.csv")
+    dfDict["avail"] = parse_file(fileDict["avail"]; dataname=dataname)
+    parse_availibility!(dtr,dfDict["avail"])
+
+    # Relations (i.e set-to-set correspondences)
+    dfDict["map_node_tech"] = parse_file(fileDict["map_node_tech"]; dataname=dataname)
+    dfDict["map_node_storages"] = parse_file(fileDict["map_node_storages"]; dataname=dataname)
+    dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
+    initialise_set_relation_data!(dtr)
+    parse_set_relations!(dtr)
+    parse_arcs!(dtr)
+
+    # Calculated base parameters
+    calc_base_parameters!(dtr)
+
+    ## EV
+    if !(dtr.settings[:ev] |> ismissing)
+        # e.g. fileDict["ev"] = joinpath(datapath,"ev","ev.csv")
+        dfDict["ev"] = parse_file(fileDict["ev"]; dataname=dataname)
+        parse_ev_technologies!(dtr, dfDict["ev"])
+
+        # e.g. fileDict["ev_demand"] = joinpath(datapath,"ev","ev_demand.csv")
+        dfDict["ev_demand"] = parse_file(fileDict["ev_demand"]; dataname=dataname)
+        parse_ev_demand!(dtr, dfDict["ev_demand"])
+
+        # e.g. fileDict["ev_power"] = joinpath(datapath,"ev","ev_power.csv")
+        dfDict["ev_power"] = parse_file(fileDict["ev_power"]; dataname=dataname)
+        parse_ev_power!(dtr, dfDict["ev_power"])
+
+        calc_ev_quantity!(dtr)
+    else
+        @info "No Electric Vehicle aspects present in model."
+        dtr.sets[:ElectricVehicles] = Array([])
+        for s in [:AbsoluteEvDemand,:AbsoluteEvPower,:AbsoluteEvCapacity,:EvFuel,:EvType]
+            dtr.parameters[s] = Dict()
+        end
+    end
+
+    ## Heat
+    if !(dtr.settings[:heat] |> ismissing)
+        # e.g. fileDict["heat"] = joinpath(datapath,"heat","heat.csv")
+        dfDict["heat"] = parse_file(fileDict["heat"]; dataname=dataname)
+        parse_heat!(dtr, dfDict["heat"])
+
+        # e.g. fileDict["heat_technologies"] = joinpath(datapath,"heat","heat_technologies.csv")
+        dfDict["heat_technologies"] = parse_file(fileDict["heat_technologies"]; dataname=dataname)
+        parse_heat_technologies!(dtr, dfDict["heat_technologies"])
+
+        # e.g. fileDict["buildings"] = joinpath(datapath,"heat","buildings.csv")
+        dfDict["buildings"] = parse_file(fileDict["buildings"]; dataname=dataname)
+        parse_buildings!(dtr, dfDict["buildings"])
+
+        # e.g. fileDict["temperature"] = joinpath(datapath,"heat","temperature.csv")
+        dfDict["temperature"] = parse_file(fileDict["temperature"]; dataname=dataname)
+        parse_temperature!(dtr, dfDict["temperature"])
+
+        # e.g. fileDict["heat_demand"] = joinpath(datapath,"heat","heat_demand.csv")
+        dfDict["heat_demand"] = parse_file(fileDict["heat_demand"]; dataname=dataname)
+        parse_heat_demand!(dtr, dfDict["heat_demand"])
+
+        # e.g. fileDict["dhw_demand"] = joinpath(datapath,"heat","dhw_demand.csv")
+        dfDict["dhw_demand"] = parse_file(fileDict["dhw_demand"]; dataname=dataname)
+        parse_dhw_demand!(dtr, dfDict["dhw_demand"])
+
+        calc_hp_cop!(dtr)
+        calc_heat_demand!(dtr)
+    else
+        @info "No Heat aspects present in model."
+        dtr.sets[:BuildingType] = Array([])
+        dtr.sets[:HeatingType]  = Array([])
+        for s in [:HeatConsumption, :HeatShare, :MaxLevel, :HeatMaxPower, :StaticEfficiency, :COP]
+            dtr.parameters[s] = Dict()
+        end
+    end
+
+    ## Hydrogen (h2)
+    if !(dtr.settings[:h2] |> ismissing)
+        # e.g. fileDict["h2"] = joinpath(datapath,"h2","h2_technologies.csv")
+        dfDict["h2"] = parse_file(fileDict["h2"]; dataname=dataname)
+        parse_h2_technologies!(dtr, dfDict["h2"])
+
+        calc_inv_gas!(dtr)
+    else
+        @info "No Power-to-Gas/Hydrogen aspects present in model."
+        dtr.sets[:H2Technologies] = Array([])
+        dtr.sets[:P2G] = Array([])
+        dtr.sets[:G2P] = Array([])
+        dtr.sets[:GasStorages] = Array([])
+        # for s in []
+        #     dtr.parameters[s] = Dict()
+        # end
+    end
+
+    return dfDict
+end
+
+function parse_nodes!(dtr::DieterModel, df::DataFrame)
+
+    dtr.sets[:Nodes] = disallowmissing(unique(df[!, :Nodes]))
+    dtr.sets[:NodeLevels] = disallowmissing(unique(df[!, :NodeLevel]))
+
+    return nothing
+end
+
 function parse_base_technologies!(dtr::DieterModel, df::DataFrame)
 # function parse_base_technologies!(dtr::DieterModel, path::AbstractString)
     # df = CSV.read(path)
     dtr.sets[:Technologies] = disallowmissing(unique(df[!, :Technologies]))
     dtr.sets[:Regions] = disallowmissing(unique(df[!, :Region]))
 
-    dtr.sets[:Renewables] = disallowmissing([row[:Technologies] for row in eachrow(df)
-        if row[:Renewable] == 1])
+    dtr.sets[:Renewables] = disallowmissing(unique([row[:Technologies] for row in eachrow(df)
+        if row[:Renewable] == 1]))
 
-    dtr.sets[:Conventional] = disallowmissing([row[:Technologies] for row in eachrow(df)
-        if row[:Renewable] == 0])
+    dtr.sets[:Conventional] = disallowmissing(unique([row[:Technologies] for row in eachrow(df)
+        if row[:Renewable] == 0]))
 
-    dtr.sets[:Dispatchable] = disallowmissing([row[:Technologies]
-        for row in eachrow(df) if row[:Dispatchable] == 1])
+    dtr.sets[:Dispatchable] = disallowmissing(unique([row[:Technologies]
+        for row in eachrow(df) if row[:Dispatchable] == 1]))
 
-    dtr.sets[:NonDispatchable] = disallowmissing([row[:Technologies]
-        for row in eachrow(df) if row[:Dispatchable] == 0])
+    dtr.sets[:NonDispatchable] = disallowmissing(unique([row[:Technologies]
+        for row in eachrow(df) if row[:Dispatchable] == 0]))
 
-    # params = map_idcol(df, skip=[:Region, :Renewable, :Dispatchable])
-    params = map_idcol(df, skip=Symbol[])
+    # params = map_idcol(df, skip_cols=[:Region, :Renewable, :Dispatchable])
+    params = map_idcol(df, [:Region, :Technologies], skip_cols=Symbol[])
     merge!(dtr.parameters, params)
 
     return nothing
@@ -29,7 +166,7 @@ function parse_storages!(dtr::DieterModel, df::DataFrame)
     # df = CSV.read(path)
     dtr.sets[:Storages] = disallowmissing(unique(df[!,:Storages]))
 
-    params = map_idcol(df, skip=[:Region])
+    params = map_idcol(df, [:Region, :Storages], skip_cols=Symbol[])
     for (k,v) in params update_dict!(dtr.parameters, k, v) end
 
     return nothing
@@ -52,15 +189,98 @@ function parse_availibility!(dtr::DieterModel, df::DataFrame)
     return nothing
 end
 
+
+"Create the mathematical set relations for doing set-correspondences in models."
+function initialise_set_relation_data!(dtr)
+# See util.jl/create_relation(...) for the function definition
+# See struct.jl/parse_data_to_model!(...) for construction of the Dict dtr.data["maps"]
+
+# map_<...> is a a reference to a DataFrame containing side-by-side columns of set correspondences
+# rel_<...> is a filter function created from the DataFrame map_<...>
+# rel_<...> applied is a Julia array object with Tuples containing the mathematical relation for later iteration.
+
+    # Input for this scope (the inputs need to have been parsed previously using initialise_data_file_dict! & parse_data_to_model! )
+    dfDict = dtr.data["dataframes"]
+
+    # Output stored in model's data field:
+    dtr.data["relations"] = Dict{String,Any}()
+
+    # Relation between a node and associated technologies
+    rel_node_tech = create_relation(dfDict["map_node_tech"],:Nodes,:Technologies,:IncludeFlag)
+    # rel_node_tech = filter(x->f_node_tech(x[1],x[2]), [(n,t) for n in N for t in T] )
+
+    # Relation between a node and associated storage technologies
+    rel_node_storages = create_relation(dfDict["map_node_storages"],:Nodes,:Technologies,:IncludeFlag)
+    # rel_node_storages = filter(x->f_node_storages(x[1],x[2]),[(n,s) for n in N for s in S])
+
+    # Relation between a node and associated level
+    rel_node_level = create_relation(dfDict["nodes"],:Nodes,:NodeLevel,:IncludeFlag)
+
+    # Relation between a node and associated level above (its promotion)
+    rel_node_promote = create_relation(dfDict["nodes"],:Nodes,:NodePromote,:IncludeFlag)
+
+    # Relation between a node and incident/connected nodes (inter-connectors)
+    rel_node_incidence = create_relation(dfDict["arcs"],:FromNodes,:ToNodes,:IncludeFlag)
+
+    # Store the results:
+    dtr.data["relations"]["rel_node_tech"] = rel_node_tech
+    dtr.data["relations"]["rel_node_storages"] = rel_node_storages
+    dtr.data["relations"]["rel_node_level"] = rel_node_level
+    dtr.data["relations"]["rel_node_promote"] = rel_node_promote
+    dtr.data["relations"]["rel_node_incidence"] = rel_node_incidence
+
+end
+
+function parse_set_relations!(dtr)
+
+    Nodes = dtr.sets[:Nodes]
+    NodeLevels = dtr.sets[:NodeLevels]
+    Technologies = dtr.sets[:Technologies]
+    Storages = dtr.sets[:Storages]
+
+    # Relation between a node and associated technologies
+    rel_node_tech = dtr.data["relations"]["rel_node_tech"]
+    dtr.sets[:Nodes_Techs] = tuple2_filter(rel_node_tech, Nodes, Technologies)
+
+    # Relation between a node and associated storage technologies
+    rel_node_storages = dtr.data["relations"]["rel_node_storages"]
+    dtr.sets[:Nodes_Storages] = tuple2_filter(rel_node_storages, Nodes, Storages)
+
+    # Relation between a node and associated level
+    rel_node_level = dtr.data["relations"]["rel_node_level"]
+    dtr.sets[:Nodes_Levels] = tuple2_filter(rel_node_level, Nodes, NodeLevels)
+
+    # Relation between a node and associated level above (its promotion)
+    rel_node_promote = dtr.data["relations"]["rel_node_promote"]
+    dtr.sets[:Nodes_Promotes] = tuple2_filter(rel_node_promote, Nodes, Nodes)
+
+    return nothing
+
+end
+
+function parse_arcs!(dtr::DieterModel)
+
+    Nodes = dtr.sets[:Nodes]
+
+    # Relation between a node and incident/connected nodes (inter-connectors)
+    rel_node_incidence = dtr.data["relations"]["rel_node_incidence"]
+    dtr.sets[:Arcs] = tuple2_filter(rel_node_incidence, Nodes, Nodes)
+
+    return nothing
+end
+
 annuity(i,lifetime) = i*((1+i)^lifetime) / (((1+i)^lifetime)-1)
 
 function calc_inv_tech!(dtr::DieterModel)
-    T = dtr.sets[:Technologies]
+    Nodes_Techs = dtr.sets[:Nodes_Techs]
+    # Nodes = dtr.sets[:Nodes]
+    # Technologies = dtr.sets[:Technologies]
+
     oc = dtr.parameters[:OvernightCost]
     lt = dtr.parameters[:Lifetime]
     i = dtr.settings[:interest]
 
-    dict = Dict(t => oc[t]*annuity(i, lt[t]) for t in T)
+    dict = Dict((n,t) => oc[n,t]*annuity(i, lt[n,t]) for (n,t) in Nodes_Techs)
     update_dict!(dtr.parameters, :InvestmentCost, dict)
 
     return nothing
@@ -68,35 +288,42 @@ end
 
 
 function calc_inv_storages!(dtr::DieterModel)
-    S = dtr.sets[:Storages]
+    Nodes_Storages = dtr.sets[:Nodes_Storages]
+    # Nodes = dtr.sets[:Nodes]
+    # Storages = dtr.sets[:Storages]
+
     oce = dtr.parameters[:OvernightCostEnergy]
     ocp = dtr.parameters[:OvernightCostPower]
     lt = dtr.parameters[:Lifetime]
     i = dtr.settings[:interest]
 
-    energy = Dict(s => oce[s]*annuity(i, lt[s]) for s in S)
-    power = Dict(s => ocp[s]*annuity(i, lt[s]) for s in S)
+    cost_energy = Dict((n,s) => oce[n,s]*annuity(i, lt[n,s]) for (n,s) in Nodes_Storages)
+    cost_power  = Dict((n,s) => ocp[n,s]*annuity(i, lt[n,s]) for (n,s) in Nodes_Storages)
 
-    update_dict!(dtr.parameters, :InvestmentCostEnergy, energy)
-    update_dict!(dtr.parameters, :InvestmentCostPower, power)
+    update_dict!(dtr.parameters, :InvestmentCostEnergy, cost_energy)
+    update_dict!(dtr.parameters, :InvestmentCostPower, cost_power)
 
     return nothing
 end
 
 "Calculated marginal costs for plants including variable costs"
 function calc_mc!(dtr::DieterModel)
-    T = dtr.sets[:Technologies]
+    Nodes_Techs = dtr.sets[:Nodes_Techs]
+    Nodes_Storages = dtr.sets[:Nodes_Storages]
+    # Nodes = dtr.sets[:Nodes]
+    # Technologies = dtr.sets[:Technologies]
+    # Storages = dtr.sets[:Storages]
+
     fc = dtr.parameters[:FuelCost]
     eff = dtr.parameters[:Efficiency]
     vc = dtr.parameters[:VariableCost]
     cc = dtr.parameters[:CarbonContent]
     co2 = dtr.settings[:co2]
 
-    marginalcost = Dict(t => fc[t]/eff[t] + (cc[t]*co2)/eff[t] + vc[t] for t in T)
+    marginalcost = Dict((n,t) => fc[n,t]/eff[n,t] + (cc[n,t]*co2)/eff[n,t] + vc[n,t] for (n,t) in Nodes_Techs)
     update_dict!(dtr.parameters, :MarginalCost, marginalcost)
 
-    S = dtr.sets[:Storages]
-    marginalcost_sto = Dict(s => fc[s]/eff[s] + vc[s] for s in S)
+    marginalcost_sto = Dict((n,s) => fc[n,s]/eff[n,s] + vc[n,s] for (n,s) in Nodes_Storages)
     update_dict!(dtr.parameters, :MarginalCost, marginalcost_sto)
 
     return nothing

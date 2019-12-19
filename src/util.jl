@@ -1,5 +1,76 @@
 # This file is part of Dieter: Utility functions
 
+"Given a Dict of keys => filenames, check at files exist"
+function check_files_exist(fileDict::Dict{String,String})
+    for (k,v) in fileDict
+        if !isfile(fileDict[k])
+            @error "File \"$(fileDict[k])\" not found."
+            return false
+        end
+    end
+
+    return true
+end
+
+"Parse a given data file and return the desired data in a `DataFrame`."
+function parse_file(file::String; dataname::String="")
+    filetype=split(lowercase(file), '.')[end]
+    if filetype == "csv"
+        df = CSV.read(file)
+    elseif filetype == "sql" ## TODO
+        # We expect dataname to be the path to a SQLite database file
+        if !(isfile(dataname))
+            @error "The given dataname \"$dataname\" is not a valid file."
+        end
+        try
+            db = SQLite.DB(dataname)
+        catch
+            @error "Opening of SQLite database file \"$dataname\" unsuccessful."
+        end
+        db = SQLite.DB(dataname)
+        queryString = read(file, String)
+        df = SQLite.Query(db,queryString) |> DataFrame
+    else
+        error("Unrecognised filetype (as parsed from the file extension).")
+    end
+
+    return df
+end
+
+tuple2_filter(func,A,B) = filter(x->func(x[1],x[2]), [(a,b) for a in A for b in B])
+
+"""
+Using a DataFrame, `create_relation` returns a function that can be used to determine
+a 2-valued relation, that is, a set-to-set correspondence.
+DataFrame column-names (Symbols) are given that define the set tuples,
+and a third Indicator column-name is used to indicate set membership.
+The return type is a function that can be used with two "sets" A and B in
+`tuple2_filter(func,A,B) = filter(x->func(x[1],x[2]), [(a,b) for a in A for b in B])`
+"""
+function create_relation(df::DataFrame,First::Symbol,Second::Symbol,
+                Indicator::Symbol) # ; criterion=testfunc_returns_bool
+
+    if !(First in names(df))
+        @error "The symbol $First must be a valid name of the DataFrame."
+    elseif !(Second in names(df))
+        @error "The symbol $Second must be a valid name of the DataFrame."
+    elseif !(Indicator in names(df))
+        @error "The symbol $Indicator must be a valid name of the DataFrame."
+    end
+
+    # FirstType = eltype(df[!,:($First)])
+    # SecondType   = eltype(df[!,:($Second)])
+
+    func(x,y) =
+        begin
+            r = @where(df, :($First) .== x, :($Second) .== y)
+            return sum(r[:,:($Indicator)]) > 0  ## This could be some other criteron for a relation existing:
+            #  TODO allow user to pass the criterion function as an argument
+        end
+
+    return func
+end
+
 "Update a data Dict, merging the data if present, adding data if not present"
 function update_dict!(dict::Dict{Symbol,Any}, key, val::Dict)
     # if !isa(val,Dict)
@@ -15,8 +86,8 @@ end
 
 """
 Return a dictionary of `Dict`s from a `DataFrame` with column-names as keys,
-and each `Dict` has a key-value pair of id => data-value.
-Column symbols listed in `skip` are skipped.
+and each `Dict` has a key-value pair of id_cols => data-value.
+Column symbols listed in `skip_cols` are skipped.
 
 # Examples
 
@@ -31,13 +102,14 @@ julia> df = DataFrame(x=1:4, y=11:14, z=2:5)
 │ 3   │ 3     │ 13    │ 4     │
 │ 4   │ 4     │ 14    │ 5     │
 
-julia> map_idcol(df, skip=[:z], id_cols=1)
+julia> map_idcol(df, 1, skip_cols=[:z])
 Dict{Symbol,Dict} with 1 entry:
   :y => Dict(4=>14,2=>12,3=>13,1=>11)
 ```
 """
-function map_idcol(df::DataFrame; id_cols::Int=1, skip=Symbol[])
-    push!(skip, names(df)[id_cols])
+function map_idcol(df::DataFrame, id_cols::Int; skip_cols=Symbol[])
+
+    push!(skip_cols, names(df)[id_cols])
 
     if id_cols > 1
         ids = zip([col for col in eachcol(df[:,1:id_cols], false)]...) |>
@@ -47,15 +119,55 @@ function map_idcol(df::DataFrame; id_cols::Int=1, skip=Symbol[])
     end
 
     non_id = df[:, id_cols+1:end]
+
     dict = Dict{Symbol, Dict}()
+
     for col in eachcol(non_id, true)
-        if !(col[1] in skip)
+        if !(col[1] in skip_cols)
             vals = Dict(collect(zip(ids,col[2])))
             dict[col[1]] = vals
         end
     end
     return dict
 end
+
+map_idcol(df::DataFrame; skip_cols=Symbol[]) = map_idcol(df::DataFrame, 1, skip_cols=skip_cols)
+map_idcol(df::DataFrame, id_col::Symbol; skip_cols=Symbol[]) = map_idcol(df::DataFrame, [id_col], skip_cols=skip_cols)
+
+function map_idcol(df::DataFrame, id_cols::Array{Symbol,1}; skip_cols=Symbol[])
+
+    for sym in skip_cols
+        if sym in id_cols
+            @warn "Skipped columm $sym is a member of the given id key columns.
+                    It will be ignored."
+        elseif !(sym in names(df))
+            @warn "Skipped columm $sym is a not a column names in the DataFrame.
+                    It will be ignored."
+        end
+    end
+
+    push!(skip_cols, id_cols...)
+
+    if length(id_cols) == 1 ## The Dict id will be a singleton
+        Keys = df[!,:($(id_cols[1]))]   # Returns a Vector
+    else # Make the Dict keys into Tuples
+        Keys = [Tuple(row[id_cols]) for row in eachrow(df)]
+    end
+
+    non_id = setdiff(names(df),skip_cols)  # Remove skipped columms
+
+    dict = Dict{Symbol, Dict}()
+
+    for col in eachcol(df, true)
+        if col[1] in non_id
+            vals = Dict(collect(zip(Keys,col[2])))
+            dict[col[1]] = vals
+        end
+    end
+
+    return dict
+end
+
 
 """
 Create a `Dict` from a `DataFrame` with the `DataFrame` column-names as keys and columns as values.
