@@ -36,6 +36,7 @@ include("heat.jl")
 include("p2g.jl")
 
 # %%
+const hoursInYear = 8760
 const infeas_cost = 1000
 
 include("model.jl")

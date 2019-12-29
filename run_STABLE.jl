@@ -1,9 +1,9 @@
 ## Running code and tests for Dieter.jl
 
 # %% Load packages
+using Dieter
 using JuMP
 import CPLEX
-using Dieter
 
 # using ColorSchemes
 # using Plots
@@ -32,10 +32,14 @@ initialise_data_file_dict!(dtr,"sql")
 # dtr.data["files"]
 check_files_exist(dtr.data["files"])
 
-sql_db_path = joinpath(ENV["HOME"],"Documents/Projects/ESM/DTR.db")
+sql_db_path = joinpath(datapath,"DTR.db")
 
 dfDict = parse_data_to_model!(dtr,dataname=sql_db_path)
 # dfDict acccesible as dtr.data["dataframes"]
+
+## Filter tuples examples:
+# [x[1] for x in filter(x -> (x[2]=="REZone"),s[:Nodes_Types])]
+# [x[1] for x in filter(x -> (x[2]=="TxZone"),s[:Nodes_Types])]
 
 # %% Initialise model
 

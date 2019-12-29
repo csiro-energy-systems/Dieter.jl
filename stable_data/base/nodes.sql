@@ -1,8 +1,9 @@
 SELECT
-* FROM Nodes_Def
--- RegionID as Nodes,
--- RegionType as NodeLevel,
--- SuperRegion as NodePromote,
--- 1 as IncludeFlag
--- FROM Regions
--- WHERE RegionType!='RootNode'
+-- * FROM Nodes_Def
+RegionID as Nodes,
+RegionType as NodeTypes,
+SuperRegion as NodePromote,
+DemandRegion,
+IncludeLevel as IncludeFlag
+FROM Regions
+WHERE RegionType NOT IN ('RootNode','DemandRegion')

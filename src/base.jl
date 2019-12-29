@@ -1,4 +1,4 @@
-
+Type
 # %%
 ## TODO ? : Split the parsing to the DataFrame Dict from the model transformations.
 """
@@ -37,6 +37,7 @@ function parse_data_to_model!(dtr::AbstractDieterModel; dataname::AbstractString
     parse_availibility!(dtr,dfDict["avail"])
 
     # Relations (i.e set-to-set correspondences)
+    dfDict["map_node_demand"] = parse_file(fileDict["map_node_demand"]; dataname=dataname)
     dfDict["map_node_tech"] = parse_file(fileDict["map_node_tech"]; dataname=dataname)
     dfDict["map_node_storages"] = parse_file(fileDict["map_node_storages"]; dataname=dataname)
     dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
@@ -102,7 +103,7 @@ function parse_data_to_model!(dtr::AbstractDieterModel; dataname::AbstractString
         @info "No Heat aspects present in model."
         dtr.sets[:BuildingType] = Array([])
         dtr.sets[:HeatingType]  = Array([])
-        for s in [:HeatConsumption, :HeatShare, :MaxLevel, :HeatMaxPower, :StaticEfficiency, :COP]
+        for s in [:HeatConsumption, :HeatShare, :MaxLevel, :HeatMaxPower, :StaticEfficiency, :CoP]
             dtr.parameters[s] = Dict()
         end
     end
@@ -131,7 +132,9 @@ end
 function parse_nodes!(dtr::DieterModel, df::DataFrame)
 
     dtr.sets[:Nodes] = disallowmissing(unique(df[!, :Nodes]))
-    dtr.sets[:NodeLevels] = disallowmissing(unique(df[!, :NodeLevel]))
+    dtr.sets[:NodeTypes] = disallowmissing(unique(df[!, :NodeTypes]))
+    dtr.sets[:DemandRegions] = collect(skipmissing(unique(df[!, :DemandRegion])))
+    # dtr.sets[:Regions] = disallowmissing(unique(df[!, :Region]))
 
     return nothing
 end
@@ -140,7 +143,6 @@ function parse_base_technologies!(dtr::DieterModel, df::DataFrame)
 # function parse_base_technologies!(dtr::DieterModel, path::AbstractString)
     # df = CSV.read(path)
     dtr.sets[:Technologies] = disallowmissing(unique(df[!, :Technologies]))
-    dtr.sets[:Regions] = disallowmissing(unique(df[!, :Region]))
 
     dtr.sets[:Renewables] = disallowmissing(unique([row[:Technologies] for row in eachrow(df)
         if row[:Renewable] == 1]))
@@ -219,11 +221,14 @@ function initialise_set_relation_data!(dtr)
     rel_node_storages = create_relation(dfDict["map_node_storages"],:Nodes,:Technologies,:IncludeFlag)
     # rel_node_storages = filter(x->f_node_storages(x[1],x[2]),[(n,s) for n in N for s in S])
 
-    # Relation between a node and associated level
-    rel_node_level = create_relation(dfDict["nodes"],:Nodes,:NodeLevel,:IncludeFlag)
+    # Relation between a node and associated type
+    rel_node_type = create_relation(dfDict["nodes"],:Nodes,:NodeTypes,:IncludeFlag)
 
-    # Relation between a node and associated level above (its promotion)
+    # Relation between a node and associated type above (its promotion)
     rel_node_promote = create_relation(dfDict["nodes"],:Nodes,:NodePromote,:IncludeFlag)
+
+    # Relation between a node and a demand region
+    rel_node_demand = create_relation(dfDict["map_node_demand"],:Nodes,:DemandRegion,:IncludeFlag)
 
     # Relation between a node and incident/connected nodes (inter-connectors)
     rel_node_incidence = create_relation(dfDict["arcs"],:FromNodes,:ToNodes,:IncludeFlag)
@@ -231,8 +236,9 @@ function initialise_set_relation_data!(dtr)
     # Store the results:
     dtr.data["relations"]["rel_node_tech"] = rel_node_tech
     dtr.data["relations"]["rel_node_storages"] = rel_node_storages
-    dtr.data["relations"]["rel_node_level"] = rel_node_level
+    dtr.data["relations"]["rel_node_type"] = rel_node_type
     dtr.data["relations"]["rel_node_promote"] = rel_node_promote
+    dtr.data["relations"]["rel_node_demand"] = rel_node_demand
     dtr.data["relations"]["rel_node_incidence"] = rel_node_incidence
 
 end
@@ -240,7 +246,9 @@ end
 function parse_set_relations!(dtr)
 
     Nodes = dtr.sets[:Nodes]
-    NodeLevels = dtr.sets[:NodeLevels]
+    NodeTypes = dtr.sets[:NodeTypes]
+    DemandRegions = dtr.sets[:DemandRegions]
+
     Technologies = dtr.sets[:Technologies]
     Storages = dtr.sets[:Storages]
 
@@ -262,13 +270,17 @@ function parse_set_relations!(dtr)
     rel_node_storages = dtr.data["relations"]["rel_node_storages"]
     dtr.sets[:Nodes_Storages] = tuple2_filter(rel_node_storages, Nodes, Storages)
 
-    # Relation between a node and associated level
-    rel_node_level = dtr.data["relations"]["rel_node_level"]
-    dtr.sets[:Nodes_Levels] = tuple2_filter(rel_node_level, Nodes, NodeLevels)
+    # Relation between a node and associated type
+    rel_node_type = dtr.data["relations"]["rel_node_type"]
+    dtr.sets[:Nodes_Types] = tuple2_filter(rel_node_type, Nodes, NodeTypes)
 
-    # Relation between a node and associated level above (its promotion)
+    # Relation between a node and associated type above (its promotion)
     rel_node_promote = dtr.data["relations"]["rel_node_promote"]
     dtr.sets[:Nodes_Promotes] = tuple2_filter(rel_node_promote, Nodes, Nodes)
+
+    # Relation between a node and associated demand region
+    rel_node_demand = dtr.data["relations"]["rel_node_demand"]
+    dtr.sets[:Nodes_Demand] = tuple2_filter(rel_node_demand, Nodes, DemandRegions)
 
     return nothing
 
@@ -281,6 +293,8 @@ function parse_arcs!(dtr::DieterModel)
     # Relation between a node and incident/connected nodes (inter-connectors)
     rel_node_incidence = dtr.data["relations"]["rel_node_incidence"]
     dtr.sets[:Arcs] = tuple2_filter(rel_node_incidence, Nodes, Nodes)
+
+    dtr.sets[:Arcs_From] = disallowmissing(unique(dtr.data["dataframes"]["arcs"][!,:FromNodes]))
 
     return nothing
 end

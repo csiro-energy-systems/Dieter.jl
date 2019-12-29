@@ -166,6 +166,7 @@ function initialise_data_file_dict!(dtr::AbstractDieterModel,sfx::String)
     fileDict["load"] = joinpath(datapath,"base","load."*sfx)
     fileDict["avail"] = joinpath(datapath,"base","availability."*sfx)
 
+    fileDict["map_node_demand"] = joinpath(datapath,"base","map_node_demand."*sfx)
     fileDict["map_node_tech"] = joinpath(datapath,"base","map_node_tech."*sfx)
     fileDict["map_node_storages"] = joinpath(datapath,"base","map_node_storages."*sfx)
 

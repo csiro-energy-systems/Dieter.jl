@@ -13,7 +13,7 @@ const FOLDER_LIST =
     "H2_GS_L",
     "H2_GS_OUT",
     "H2_P2G",
-    "HEAT_HP",
+    "HEAT_HP_IN",
     "HEAT_INF",
     "HEAT_STO_L",
     "N",
@@ -104,7 +104,7 @@ function create_generation_summary(rdir::AbstractString)
     ev_charge = Feather.read(joinpath(rdir,"EV_CHARGE.feather"))
     ev_discharge = Feather.read(joinpath(rdir,"EV_DISCHARGE.feather"))
 
-    heat_demand = Feather.read(joinpath(rdir,"HEAT_HP.feather"))
+    heat_demand = Feather.read(joinpath(rdir,"HEAT_HP_IN.feather"))
 
     p2g = Feather.read(joinpath(rdir,"H2_P2G.feather"))
     g2p = Feather.read(joinpath(rdir,"H2_G2P.feather"))

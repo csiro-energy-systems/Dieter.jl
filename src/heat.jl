@@ -73,7 +73,7 @@ function calc_hp_cop!(dtr::DieterModel)
         cop[bu,hp] = dtr.parameters[:DynamicEfficiency][hp] .* delta
     end
 
-    dtr.parameters[:COP] = cop
+    dtr.parameters[:CoP] = cop
 
     return nothing
 end

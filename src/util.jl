@@ -41,6 +41,8 @@ function parse_file(file::String; dataname::String="")
 end
 
 tuple2_filter(func,A,B) = filter(x->func(x[1],x[2]), [(a,b) for a in A for b in B])
+# tuple3_filter(func,A,B,C) = filter(x->func(x[1],x[2],x[3]), [(a,b,c) for a in A for b in B for c in C])
+# tupleN_filter(func,X...) = filter(x->func(x...), "CartesianProduct"(X...))
 
 """
 Using a DataFrame, `create_relation` returns a function that can be used to determine
@@ -134,8 +136,8 @@ function map_idcol(df::DataFrame, id_cols::Int; skip_cols=Symbol[])
     return dict
 end
 
-map_idcol(df::DataFrame; skip_cols=Symbol[]) = map_idcol(df::DataFrame, 1, skip_cols=skip_cols)
-map_idcol(df::DataFrame, id_col::Symbol; skip_cols=Symbol[]) = map_idcol(df::DataFrame, [id_col], skip_cols=skip_cols)
+map_idcol(df::DataFrame; skip_cols=Symbol[]) = map_idcol(df, 1, skip_cols=skip_cols)
+map_idcol(df::DataFrame, id_col::Symbol; skip_cols=Symbol[]) = map_idcol(df, [id_col], skip_cols=skip_cols)
 
 function map_idcol(df::DataFrame, id_cols::Array{Symbol,1}; skip_cols=Symbol[])
 
@@ -250,4 +252,11 @@ function convert_jump_container_to_df(var::Array{VariableRef};
     df = DataFrame([var_val[:,i] for i in 1:num_dim], dim_names)
 
     return df
+end
+
+function convert_jump_container_to_df(var::VariableRef;
+    dim_names::Vector{Symbol}=Vector{Symbol}(),
+    value_col::Symbol=:Value)
+
+    return convert_jump_container_to_df([var],dim_names=dim_names,value_col=value_col)
 end
