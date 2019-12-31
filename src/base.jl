@@ -179,7 +179,7 @@ function parse_load!(dtr::DieterModel, df::DataFrame)
     # df = CSV.read(path)
     # dtr.parameters[:Load] = disallowmissing(df[!,:Load])  ## TODO ?? Construct as Dict, not array ?
 
-    params = map_idcol(df, [:RegionID, :TimeIndex], skip_cols=Symbol[])
+    params = map_idcol(df, [:DemandRegion, :TimeIndex], skip_cols=Symbol[])
     for (k,v) in params update_dict!(dtr.parameters, k, v) end
 
     return nothing
@@ -273,6 +273,11 @@ function parse_set_relations!(dtr)
     # Relation between a node and associated type
     rel_node_type = dtr.data["relations"]["rel_node_type"]
     dtr.sets[:Nodes_Types] = tuple2_filter(rel_node_type, Nodes, NodeTypes)
+
+    # Obtain the Transmission Zones
+    dtr.sets[:TxZones] = [x[1] for x in filter(x -> (x[2]=="TxZone"),dtr.sets[:Nodes_Types])]
+    # Obtain the Renewable Energy Zones
+    dtr.sets[:REZones] = [x[1] for x in filter(x -> (x[2]=="REZone"),dtr.sets[:Nodes_Types])]
 
     # Relation between a node and associated type above (its promotion)
     rel_node_promote = dtr.data["relations"]["rel_node_promote"]

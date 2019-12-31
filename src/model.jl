@@ -63,6 +63,13 @@ function build_model!(dtr::DieterModel,
     Nodes_Types = dtr.sets[:Nodes_Types]
     Nodes_Promotes = dtr.sets[:Nodes_Promotes]
 
+    Nodes_Demand = dtr.sets[:Nodes_Demand]
+
+    TxZones = dtr.sets[:TxZones]
+    REZones = dtr.sets[:REZones]
+    # TxZones = [x[1] for x in filter(x -> (x[2]=="TxZone"),Nodes_Types)]
+    # REZones = [x[1] for x in filter(x -> (x[2]=="REZone"),Nodes_Types)]
+
     ## Electric Vehicles
     EV = dtr.sets[:ElectricVehicles]
 
@@ -109,16 +116,21 @@ function build_model!(dtr::DieterModel,
     LoadIncreaseCost = dtr.parameters[:LoadIncreaseCost]
     LoadDecreaseCost = dtr.parameters[:LoadDecreaseCost]
 
-    @info "Building Model"
+    @info "Start of model building:"
+
+    prog = Progress(7, dt=0.01, desc="Building Model...         \n", barlen=30)
 
     m = Model(solver)
 
+    @info "Variable definitions."
     @variables(m, begin
         Z, (base_name="Total_cost_objective", lower_bound=0)
         G[Nodes_Techs, Hours], (base_name="Generation_level", lower_bound=0) # Units: MWh; Generation level - all generation tech.
         G_UP[Nodes_Dispatch, Hours] , (base_name="Generation_upshift", lower_bound=0) # Units: MWh; Generation level change up
         G_DO[Nodes_Dispatch, Hours], (base_name="Generation_downshift", lower_bound=0) # Units: MWh Generation level change down
         G_INF[Nodes, Hours], (base_name="Generation_infeasible", lower_bound=0) # Units: MWh; Infeasibility term for Energy Balance
+        G_REZ[REZones,Hours], (base_name="Generation_renewable_zones", lower_bound=0) # Units: MWh; Generation level - renewable energy zone tech. & stor.
+        G_TxZ[TxZones,Hours], (base_name="Generation_transmission_zones", lower_bound=0) # Units: MWh; Generation level - transmission zone tech. & stor.
         # G_RES[Nodes_Renew, h in HOURS], (base_name="Generation_renewable", lower_bound=0) # Units: MWh; Generation level - renewable gen. tech.
         CU[Nodes_NonDispatch, Hours], (base_name="Curtailment_renewables", lower_bound=0) # Units: MWh; Non-dispatchable curtailment
         STO_IN[Nodes_Storages, Hours], (base_name="Storage_inflow", lower_bound=0) # Units: MWh per h; Storage energy inflow
@@ -181,7 +193,6 @@ function build_model!(dtr::DieterModel,
     # @variable(m, HEAT_HP_IN[BU,HP, Hours] >= 0)
     # @variable(m, HEAT_INF[BU,HP, Hours] >= 0)
 
-    prog = Progress(7, dt=0.01, desc="Building Model...         \n", barlen=30)
 
 # %%   * --------------------------------------------------------------------- *
 #    ***** Objective function *****
@@ -232,6 +243,7 @@ function build_model!(dtr::DieterModel,
     );
 
     next!(prog)
+    @info "\n"
 
 # %% * ----------------------------------------------------------------------- *
 #    ***** Energy balance and load levels *****
@@ -253,19 +265,38 @@ function build_model!(dtr::DieterModel,
     # In particular, G for NonDispatchable aggregates generation from Renewables via other constraints
     # while G for Dispatchable aggregates from Transmission regions.
 
+    @info "Definition of REZone generation book-keeping variables"
+    @constraint(m, REZoneGen[rez=REZones,h=Hours],
+        G_REZ[rez,h] ==
+            sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == rez)
+         +  sum(STO_OUT[(q,sto),h] for (q,sto) in Nodes_Storages if q == rez)
+         -  sum( STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == rez)
+    );
+
+    @info "Definition of TxZone generation book-keeping variables"
+    @constraint(m, TxZoneGen[zone=TxZones,h=Hours],
+        G_TxZ[zone,h] ==
+           sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
+        + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+        + sum(STO_OUT[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
+        - sum( STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
+        - sum(FLOW[(from,to),h] for (from,to) in Arcs if from == zone)
+    );
+
+
     # Energy balance at each demand node:
     @info "Energy balance at each demand node."
     @constraint(m, EnergyBalance[n=DemandRegions,h=Hours],
-        sum(G[(p,t),h] for (p,t) in Nodes_Techs if p == n)
-        + sum(STO_OUT[(q,sto),h] for (q,sto) in Nodes_Storages if q == n)
+      # sum(G[(p,t),h] for (p,t) in Nodes_Techs if p == n)
+
+      sum(G_TxZ[zone,h] for (zone, d) in Nodes_Demand if d == n)
+        # + sum(STO_OUT[(q,sto),h] for (q,sto) in Nodes_Storages if q == n)
         + sum(EV_DISCHARGE[ev,h] for ev in EV)
         + sum(H2_G2P[g2p,h] for g2p in G2P)
         ==
-        sum(FLOW[(fr,to),h] for (fr,to) in Arcs if fr == n)
-        + L[n,h]
+      Load[n,h]
         # = sum(Load[a,h] for (a,b) in Nodes_Demand if b == n)
-
-        + sum(STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == n)
+        # + sum(STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == n)
         + sum(EV_CHARGE[ev,h] for ev in EV)
         + sum(H2_P2G[p2g,h] for p2g in P2G)
         + sum(HEAT_HP_IN[bu,hp,h] for bu in BU, hp in HP)
@@ -274,8 +305,8 @@ function build_model!(dtr::DieterModel,
 
     # Energy flow reflexive constraint:
     @info "Energy flow reflexive constraint."
-    @constraint(m, FlowEnergyReflex[(fr,to)=Arcs,h=Hours; fr in Arcs_From],
-        FLOW[(fr,to),h] + FLOW[(to,fr),h] == 0
+    @constraint(m, FlowEnergyReflex[(from,to)=Arcs,h=Hours; from in Arcs_From],
+        FLOW[(from,to),h] + FLOW[(to,from),h] == 0
     );
 
     # Generation level start - con2b_loadlevelstart

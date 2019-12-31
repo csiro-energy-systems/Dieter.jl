@@ -4,11 +4,11 @@
 -- FROM
 -- (SELECT RegionID as FromNodes, RegionType as FromType
 -- FROM Regions
--- WHERE RegionType=='DemandRegion')
+-- WHERE RegionType=='TxZone')
 -- JOIN
 -- (SELECT RegionID as ToNodes, RegionType as ToType
 -- FROM Regions
--- WHERE RegionType=='DemandRegion')
+-- WHERE RegionType=='TxZone')
 -- ON  FromType = ToType
 -- WHERE FromNodes != ToNodes
 SELECT * FROM Arcs_Def
