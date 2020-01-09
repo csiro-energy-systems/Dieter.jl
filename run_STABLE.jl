@@ -23,7 +23,7 @@ dtr.settings[:datapath] = datapath
 # fileDict = dtr.data["files"]
 
 # Modify the :min_res setting over [0,100] and rerun to see comparison.
-dtr.settings[:min_res] = 50
+dtr.settings[:min_res] = 40
 dtr.settings[:ev] = missing
 dtr.settings[:heat] = missing
 dtr.settings[:h2] = missing

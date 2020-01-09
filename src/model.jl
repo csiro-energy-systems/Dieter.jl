@@ -17,7 +17,10 @@ function build_model!(dtr::DieterModel,
     periods = round(Int,hoursInYear*2.0^(-nthhour))
     Hours = Base.OneTo(periods)
     Hours2 = Hours[2:end]
-    corr_factor = length(Hours)/hoursInYear
+    # time_ratio relates generation levels in one time-step (e.g 1/2-hourly) to energy in MWh on an hourly basis
+    # Used to compare energy to capacity in MW. A 1/2-hourly resolution means time_ratio = 1//2
+    time_ratio = hoursInYear//length(Hours)
+    corr_factor = 1//time_ratio  # length(Hours)//hoursInYear
 
     H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
 
@@ -43,11 +46,18 @@ function build_model!(dtr::DieterModel,
     elseif isa(dtr.settings[:min_res],Dict)
         min_res = dtr.settings[:min_res]
     else
-        @error "Setting `min_res` is not of type `Number` or a `Dict`."
+        error("The parameter `min_res` is not of type `Number` or `Dict`.")
     end
     dtr.settings[:min_res] = min_res
     @info "The `min_res` setting is now equal to "
     @info min_res
+    for (k,v) in min_res
+        if !(0 <= v <= 100)
+            error("The setting `min_res` of value $v for Demand Region $k is not in the interval [0,100].")
+        elseif (0 <= v <= 1)
+            @warn "The setting `min_res` of value $v for Demand Region $k is a percentage, not necessarily a fraction in [0,1]."
+        end
+    end
 
     # Mapping set definitions
     Arcs = dtr.sets[:Arcs]
@@ -103,13 +113,13 @@ function build_model!(dtr::DieterModel,
     InvestmentCostPower = dtr.parameters[:InvestmentCostPower]
     InvestmentCostEnergy = dtr.parameters[:InvestmentCostEnergy]
     FixedCost = dtr.parameters[:FixedCost]
-    Availability = dtr.parameters[:Availability]
-    MaxCapacity = dtr.parameters[:MaxCapacity]
-    MaxEnergy = dtr.parameters[:MaxEnergy]
-    MaxEtoPratio = dtr.parameters[:MaxEnergyToPowerRatio]
-    Efficiency = dtr.parameters[:Efficiency]
-    StartLevel = dtr.parameters[:StartLevel]
-    Load = dtr.parameters[:Load]
+    Availability = dtr.parameters[:Availability] # Units: MWh; Available energy from renewables as fraction of installed capacity within a time-interval
+    MaxCapacity = dtr.parameters[:MaxCapacity] # Units: MW; Maximum installable capacity - power
+    MaxEnergy = dtr.parameters[:MaxEnergy] # Units: MWh; Maximum installable storage capacity energy
+    MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio]
+    Efficiency = dtr.parameters[:Efficiency] # Units: [0,1]; Storage roundtrip efficiency
+    StartLevel = dtr.parameters[:StartLevel] # Units: [0,1]; Initial storage level as fraction of storage energy installed
+    Load = dtr.parameters[:Load] # Units: MWh per time-interval; wholesale energy demand within a time-interval (e.g. hourly or 1/2-hourly)
 
     CurtailmentCost = dtr.settings[:cu_cost]
 
@@ -125,74 +135,39 @@ function build_model!(dtr::DieterModel,
     @info "Variable definitions."
     @variables(m, begin
         Z, (base_name="Total_cost_objective", lower_bound=0)
-        G[Nodes_Techs, Hours], (base_name="Generation_level", lower_bound=0) # Units: MWh; Generation level - all generation tech.
-        G_UP[Nodes_Dispatch, Hours] , (base_name="Generation_upshift", lower_bound=0) # Units: MWh; Generation level change up
-        G_DO[Nodes_Dispatch, Hours], (base_name="Generation_downshift", lower_bound=0) # Units: MWh Generation level change down
-        G_INF[Nodes, Hours], (base_name="Generation_infeasible", lower_bound=0) # Units: MWh; Infeasibility term for Energy Balance
-        G_REZ[REZones,Hours], (base_name="Generation_renewable_zones", lower_bound=0) # Units: MWh; Generation level - renewable energy zone tech. & stor.
-        G_TxZ[TxZones,Hours], (base_name="Generation_transmission_zones", lower_bound=0) # Units: MWh; Generation level - transmission zone tech. & stor.
+        G[Nodes_Techs, Hours], (base_name="Generation_level", lower_bound=0) # Units: MWh per time-interval; Generation level - all generation tech.
+        G_UP[Nodes_Dispatch, Hours] , (base_name="Generation_upshift", lower_bound=0)  # Units: MWh per time-interval; Generation level change up
+        G_DO[Nodes_Dispatch, Hours], (base_name="Generation_downshift", lower_bound=0) # Units: MWh per time-interval; Generation level change down
+        G_INF[Nodes, Hours], (base_name="Generation_infeasible", lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Energy Balance
+        G_REZ[REZones,Hours], (base_name="Generation_renewable_zones", lower_bound=0) # Units: MWh per time-interval; Generation level - renewable energy zone tech. & stor.
+        G_TxZ[TxZones,Hours], (base_name="Generation_transmission_zones", lower_bound=0) # Units: MWh per time-interval; Generation level - transmission zone tech. & stor.
         # G_RES[Nodes_Renew, h in HOURS], (base_name="Generation_renewable", lower_bound=0) # Units: MWh; Generation level - renewable gen. tech.
-        CU[Nodes_NonDispatch, Hours], (base_name="Curtailment_renewables", lower_bound=0) # Units: MWh; Non-dispatchable curtailment
-        STO_IN[Nodes_Storages, Hours], (base_name="Storage_inflow", lower_bound=0) # Units: MWh per h; Storage energy inflow
-        STO_OUT[Nodes_Storages, Hours], (base_name="Storage_outflow", lower_bound=0) # Units: MWh per h; Storage energy outflow
-        STO_L[Nodes_Storages, Hours], (base_name="Storage_level", lower_bound=0) # Units: MWh; Storage energy level
+        CU[Nodes_NonDispatch, Hours], (base_name="Curtailment_renewables", lower_bound=0) # Units: MWh per time-interval; Non-dispatchable curtailment
+        STO_IN[Nodes_Storages, Hours], (base_name="Storage_inflow", lower_bound=0) # Units: MWh per time-interval; Storage energy inflow
+        STO_OUT[Nodes_Storages, Hours], (base_name="Storage_outflow", lower_bound=0) # Units: MWh per time-interval; Storage energy outflow
+        STO_L[Nodes_Storages, Hours], (base_name="Storage_level", lower_bound=0) # Units: MWh at a given time-interval; Storage energy level
         N_TECH[Nodes_Techs], (base_name="Technology_capacity", lower_bound=0) # Units: MW; Technology capacity built
         # N_RES[Nodes_Renew], (base_name="Renewable_capacity", lower_bound=0) # Units: MW; Renewable technology capacity built
-        N_STO_E[Nodes_Storages], (base_name="Storage_build_energy", lower_bound=0) # Units: MWh; Storage technology built - Energy
-        N_STO_P[Nodes_Storages], (base_name="Storage_capacity", lower_bound=0) # Units: MW; Storage loading and discharging capacity built
+        N_STO_E[Nodes_Storages], (base_name="Storage_build_energy", lower_bound=0) # Units: MWh; Storage energy technology built
+        N_STO_P[Nodes_Storages], (base_name="Storage_capacity", lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
         FLOW[Arcs,Hours], (base_name="Internodal_flow") # Units: MWh; Power flow between nodes in topology
-        EV_CHARGE[EV, Hours], (base_name="EV_charging", lower_bound=0) # Units: MWh; Electric vehicle charge for vehicle profile in set EV
-        EV_DISCHARGE[EV, Hours], (base_name="EV_discharging", lower_bound=0) # Units: MWh; Electric vehicle dischargw for vehicle profile in set EV
-        EV_L[EV, Hours], (base_name="EV_charge_level", lower_bound=0) # Units: MWh; Electric vehicle charging level for vehicle profile in set EV
-        EV_PHEVFUEL[EV, Hours], (base_name="EV_PHEV_fuel_use", lower_bound=0) #  Plug in hybrid electric vehicle conventional fuel use
-        EV_INF[EV, Hours], (base_name="EV_infeasible", lower_bound=0) # Units: MWh; Infeasibility term for Electric vehicle energy balance
-        H2_P2G[P2G, Hours], (base_name="H2_power_to_gas", lower_bound=0) # Units: MWh; Power-to-gas conversion
-        H2_G2P[G2P, Hours], (base_name="H2_gas_to_power", lower_bound=0) # Units: MWh; Gas-to-power conversion
-        H2_GS_L[GasStorages, Hours], (base_name="H2_storage_level", lower_bound=0) # Units: Current gas storage level
+        EV_CHARGE[EV, Hours], (base_name="EV_charging", lower_bound=0) # Units: MWh per time-interval; Electric vehicle charge for vehicle profile in set EV
+        EV_DISCHARGE[EV, Hours], (base_name="EV_discharging", lower_bound=0) # Units: MWh per time-interval; Electric vehicle dischargw for vehicle profile in set EV
+        EV_L[EV, Hours], (base_name="EV_charge_level", lower_bound=0) # Units: MWh at a given time-interval; Electric vehicle charging level for vehicle profile in set EV
+        EV_PHEVFUEL[EV, Hours], (base_name="EV_PHEV_fuel_use", lower_bound=0) #  Plug-in hybrid electric vehicle conventional fuel use
+        EV_INF[EV, Hours], (base_name="EV_infeasible", lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Electric vehicle energy balance
+        H2_P2G[P2G, Hours], (base_name="H2_power_to_gas", lower_bound=0) # Units: MWh per time-interval; Power-to-gas energy conversion
+        H2_G2P[G2P, Hours], (base_name="H2_gas_to_power", lower_bound=0) # Units: MWh per time-interval; Gas-to-power energy conversion
+        H2_GS_L[GasStorages, Hours], (base_name="H2_storage_level", lower_bound=0) # Units: MWh at a given time-interval; Current gas storage level
         H2_GS_IN[GasStorages, Hours], (base_name="H2_storage_inflow", lower_bound=0)
         H2_GS_OUT[GasStorages, Hours], (base_name="H2_storage_outflow", lower_bound=0)
-        N_P2G[P2G], (base_name="H2_P2G_capacity", lower_bound=0)
-        N_G2P[G2P], (base_name="H2_G2P_capacity", lower_bound=0)
-        N_GS[GasStorages], (base_name="H2_storage_capacity", lower_bound=0)
-        HEAT_STO_L[BU,HP,Hours], (base_name="Heat_storage_level", lower_bound=0) # Units: MWh; Heating: storage level
-        HEAT_HP_IN[BU,HP, Hours], (base_name="Heat_heat_pump_", lower_bound=0)   # Units: MWh; Heating: electricity demand from heat pump
-        HEAT_INF[BU,HP, Hours], (base_name="Heat_infeasible", lower_bound=0)  # Units: MWh; Heating: Infeasibility term for Electric vehicle energy balance
+        N_P2G[P2G], (base_name="H2_P2G_capacity", lower_bound=0) # Units: MW; Power-to-gas capacity
+        N_G2P[G2P], (base_name="H2_G2P_capacity", lower_bound=0) # Units: MW; Gas-to-power capacity
+        N_GS[GasStorages], (base_name="H2_storage_capacity", lower_bound=0) # Units; MWh (??) ; Gas storage (energy) capacity
+        HEAT_STO_L[BU,HP,Hours], (base_name="Heat_storage_level", lower_bound=0) # Units: MWh at a given time-interval; Heating: storage level
+        HEAT_HP_IN[BU,HP, Hours], (base_name="Heat_heat_pump_", lower_bound=0)   # Units: MWh per time-interval; Heating: electricity demand from heat pump
+        HEAT_INF[BU,HP, Hours], (base_name="Heat_infeasible", lower_bound=0)  # Units: MWh per time-interval; Heating: Infeasibility term for Electric vehicle energy balance
     end)
-
-    # @variable(m, G[Nodes_Techs, Hours] >= 0)
-    # @variable(m, G_UP[Nodes_Dispatch, Hours] >= 0)
-    # @variable(m, G_DO[Nodes_Dispatch, Hours] >= 0)
-    #
-    # @variable(m, CU[Nodes_NonDispatch, Hours] >= 0)
-    # @variable(m, STO_IN[Nodes_Storages, Hours] >= 0)
-    # @variable(m, STO_OUT[Nodes_Storages, Hours] >= 0)
-    # @variable(m, STO_L[Nodes_Storages, Hours] >= 0)
-    # @variable(m, N_TECH[Nodes_Techs] >= 0)
-    # @variable(m, N_STO_E[Nodes_Storages] >= 0)
-    # @variable(m, N_STO_P[Nodes_Storages] >= 0)
-    # @variable(m, G_INF[Nodes,Hours] >= 0)
-    #
-    # @variable(m, FLOW[Arcs,Hours])
-    #
-    # @variable(m, EV_CHARGE[EV, Hours] >= 0)
-    # @variable(m, EV_DISCHARGE[EV, Hours] >= 0)
-    # @variable(m, EV_L[EV, Hours] >= 0)
-    # @variable(m, EV_PHEVFUEL[EV, Hours] >= 0)
-    # @variable(m, EV_INF[EV, Hours] >= 0)
-    #
-    # @variable(m, H2_P2G[P2G, Hours] >= 0)
-    # @variable(m, H2_G2P[G2P, Hours] >= 0)
-    # @variable(m, H2_GS_L[GasStorages, Hours] >= 0)
-    # @variable(m, H2_GS_IN[GasStorages, Hours] >= 0)
-    # @variable(m, H2_GS_OUT[GasStorages, Hours] >= 0)
-    # @variable(m, N_P2G[P2G] >= 0)
-    # @variable(m, N_G2P[G2P] >= 0)
-    # @variable(m, N_GS[GasStorages] >= 0)
-    #
-    # @variable(m, HEAT_STO_L[BU,HP,Hours] >= 0)
-    # @variable(m, HEAT_HP_IN[BU,HP, Hours] >= 0)
-    # @variable(m, HEAT_INF[BU,HP, Hours] >= 0)
-
 
 # %%   * --------------------------------------------------------------------- *
 #    ***** Objective function *****
@@ -202,29 +177,28 @@ function build_model!(dtr::DieterModel,
 
     @info "Objective function."
     @constraint(m, ObjectiveFunction,
-        Z ==
-        sum(MarginalCost[n,t] * G[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
+            (sum(MarginalCost[n,t] * G[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
 
-        + sum(LoadIncreaseCost[n,t] * G_UP[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours2)
-        + sum(LoadDecreaseCost[n,t] * G_DO[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
+            + sum(LoadIncreaseCost[n,t] * G_UP[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours2)
+            + sum(LoadDecreaseCost[n,t] * G_DO[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
 
-        + sum(CurtailmentCost * CU[(n,t),h] for (n,t) in Nodes_NonDispatch, h in Hours)
+            + sum(CurtailmentCost * CU[(n,t),h] for (n,t) in Nodes_NonDispatch, h in Hours)
 
-        + sum(infeas_cost * G_INF[n,h] for n in Nodes, h in Hours)
+            + sum(infeas_cost * G_INF[n,h] for n in Nodes, h in Hours)
 
-        + sum(MarginalCost[n,sto] * (STO_OUT[(n,sto),h] + STO_IN[(n,sto),h])
-            for (n,sto) in Nodes_Storages, h in Hours)
+            + sum(MarginalCost[n,sto] * (STO_OUT[(n,sto),h] + STO_IN[(n,sto),h])
+                for (n,sto) in Nodes_Storages, h in Hours)
 
-        + sum(MarginalCost[ev] * EV_DISCHARGE[ev, h]
-              + EvFuel[ev] * EV_PHEVFUEL[ev, h]
-              + infeas_cost * EV_INF[ev, h] for ev in EV, h in Hours)
+            + sum(MarginalCost[ev] * EV_DISCHARGE[ev, h]
+                  + EvFuel[ev] * EV_PHEVFUEL[ev, h]
+                  + infeas_cost * EV_INF[ev, h] for ev in EV, h in Hours)
 
-        + sum(MarginalCost[g2p] * H2_G2P[g2p,h] for g2p in G2P, h in Hours)
+            + sum(MarginalCost[g2p] * H2_G2P[g2p,h] for g2p in G2P, h in Hours)
 
-        + sum(infeas_cost * HEAT_INF[bu,hp,h] for bu in BU, hp in HP, h in Hours)
+            + sum(infeas_cost * HEAT_INF[bu,hp,h] for bu in BU, hp in HP, h in Hours)
+            )
 
-
-        + corr_factor *
+        +
             (sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(InvestmentCostPower[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages)
             + sum(InvestmentCostEnergy[n,sto] * N_STO_E[(n,sto)] for (n,sto) in Nodes_Storages)
@@ -240,6 +214,7 @@ function build_model!(dtr::DieterModel,
             + sum(FixedCost[g2p] * N_G2P[g2p] for g2p in G2P)
             + sum(FixedCost[gs] * N_GS[gs] for gs in GasStorages)
            )
+        == Z
     );
 
     next!(prog)
@@ -269,8 +244,7 @@ function build_model!(dtr::DieterModel,
     @constraint(m, REZoneGen[rez=REZones,h=Hours],
         G_REZ[rez,h] ==
             sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == rez)
-         +  sum(STO_OUT[(q,sto),h] for (q,sto) in Nodes_Storages if q == rez)
-         -  sum( STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == rez)
+         +  sum(STO_OUT[(q,sto),h] - STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == rez)
     );
 
     @info "Definition of TxZone generation book-keeping variables"
@@ -278,8 +252,7 @@ function build_model!(dtr::DieterModel,
         G_TxZ[zone,h] ==
            sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
         + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
-        + sum(STO_OUT[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
-        - sum( STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
+        + sum(STO_OUT[(z,sto),h] - STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
         - sum(FLOW[(from,to),h] for (from,to) in Arcs if from == zone)
     );
 
@@ -299,7 +272,7 @@ function build_model!(dtr::DieterModel,
         # + sum(STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == n)
         + sum(EV_CHARGE[ev,h] for ev in EV)
         + sum(H2_P2G[p2g,h] for p2g in P2G)
-        + sum(HEAT_HP_IN[bu,hp,h] for bu in BU, hp in HP)
+        + sum(HEAT_HP_IN[bu,hp,h] for bu in BU for hp in HP)
 
     );
 
@@ -326,12 +299,12 @@ function build_model!(dtr::DieterModel,
     # Variable upper bound on dispatchable generation by capacity
     @info "Variable upper bound on non-dispatchable generation by capacity."
     @constraint(m, MaxGenerationDisp[(n,t)=Nodes_Dispatch,h=Hours],
-        G[(n,t),h] <= N_TECH[(n,t)]
+        G[(n,t),h] <= time_ratio * N_TECH[(n,t)]
     );
 
     @info "Variable upper bound on non-dispatchable generation by capacity."
     @constraint(m, MaxGenerationNonDisp[(n,t)=Nodes_NonDispatch,h=Hours],
-        G[(n,t),h] + CU[(n,t),h] == Availability[n,t,h] * N_TECH[(n,t)]
+        G[(n,t),h] + CU[(n,t),h] == Availability[n,t,h] * time_ratio * N_TECH[(n,t)]
     );
 
     # Maximum capacity allowed
@@ -343,7 +316,7 @@ function build_model!(dtr::DieterModel,
     # Maximum generated energy allowed.
     @info "Maximum generated energy allowed."
     @constraint(m, MaxEnergyGenerated[(n,t)=Nodes_Techs; !(MaxEnergy[n,t] |> ismissing)],
-        sum(G[(n,t),h] for h in Hours) <= corr_factor * MaxEnergy[n,t]
+        sum(G[(n,t),h] for h in Hours) <= MaxEnergy[n,t]
     );
 
     next!(prog)
@@ -355,16 +328,27 @@ function build_model!(dtr::DieterModel,
     #  Minimum yearly renewables requirement (con5a_minRES)
     @info "Minimum yearly renewables requirement."
     @constraint(m, MinRES[n=DemandRegions],
-        sum(G[(p,res),h] for (p,res) in Nodes_Renew if p == n for h in Hours)
-        + sum(STO_OUT[(q,sto),h] - STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == n for h in Hours)
-        + sum(H2_G2P[g2p,h] - H2_P2G[p2g,h] for p2g in P2G, g2p in G2P, h in Hours)
+        sum(
+           sum(G[(z,t),h] for (z,t) in Nodes_Renew if z == zone)
+         + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+         for (zone, d) in Nodes_Demand if d == n
+         for h in Hours
+        )
+        + sum(H2_G2P[g2p,h] - H2_P2G[p2g,h] for p2g in P2G for g2p in G2P ) # for h in Hours)
         >=
         (min_res[n]/100)*(
-        sum(G[(p,t),h] for (p,t) in Nodes_Techs if p == n for h in Hours)
-        + sum(STO_OUT[(q,sto),h] - STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == n for h in Hours)
-        + sum(H2_G2P[g2p,h] - H2_P2G[p2g,h] for p2g in P2G, g2p in G2P, h in Hours)
+            sum(
+               sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
+             + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+             + sum(STO_OUT[(z,sto),h] - STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
+             for (zone, d) in Nodes_Demand if d == n
+             for h in Hours
+            )
+            + sum(H2_G2P[g2p,h] - H2_P2G[p2g,h] for p2g in P2G for g2p in G2P ) # for h in Hours)
         )
     );
+    # Note: if there is NO renewable energy associated to the DemandRegion, then this constraint will
+    # act to zero out ALL generation associated to the DemandRegion.
 
 # %% * ----------------------------------------------------------------------- *
 #    ***** Storage constraints *****
@@ -416,13 +400,13 @@ function build_model!(dtr::DieterModel,
     # Storage maximum inflow (con4d_maxin_sto)
     @info "Storage maximum inflow."
     @constraint(m, MaxWithdrawStorage[(n,sto)=Nodes_Storages,h=Hours],
-        STO_IN[(n,sto),h] <= N_STO_P[(n,sto)]
+        STO_IN[(n,sto),h] <= time_ratio * N_STO_P[(n,sto)]
     );
 
     # Storage maximum outflow by capacity (con4e_maxout_sto)
     @info "Storage generation outflow by capacity."
     @constraint(m, MaxGenerationStorage[(n,sto)=Nodes_Storages,h=Hours],
-        STO_OUT[(n,sto),h] <= N_STO_P[(n,sto)]
+        STO_OUT[(n,sto),h] <= time_ratio * N_STO_P[(n,sto)]
     );
 
     @info "Storage: maximum energy allowed."
@@ -437,8 +421,8 @@ function build_model!(dtr::DieterModel,
 
     # Maximum Energy to Power ratio for certain storage technologies (con4k_PHS_EtoP)
     @info "Storage: maximum energy-to-power ratio (use time)"
-    @constraint(m, EnergyToPowerRatio[(n,sto)=Nodes_Storages; !(MaxEtoPratio[n,sto] |> ismissing)],
-        N_STO_E[(n,sto)] <= MaxEtoPratio[n,sto]*N_STO_P[(n,sto)]
+    @constraint(m, EnergyToPowerRatio[(n,sto)=Nodes_Storages; !(MaxEtoP_ratio[n,sto] |> ismissing)],
+        N_STO_E[(n,sto)] <= MaxEtoP_ratio[n,sto]*N_STO_P[(n,sto)]
     );
 
     # Maximum storage outflow - no more than level of last period (con4h_maxout_lev)
@@ -497,11 +481,11 @@ function build_model!(dtr::DieterModel,
     next!(prog)
 
     @constraint(m, MaxP2G[p2g=P2G,h=Hours],
-        H2_P2G[p2g,h] <= N_P2G[p2g]
+        H2_P2G[p2g,h] <= time_ratio * N_P2G[p2g]
     );
 
     @constraint(m, MaxG2P[g2p=G2P,h=Hours],
-        H2_G2P[g2p,h] <= N_G2P[g2p]
+        H2_G2P[g2p,h] <= time_ratio * N_G2P[g2p]
     );
 
     @constraint(m, MaxLevelGasstorage[gs=GasStorages,h=Hours],
@@ -561,7 +545,7 @@ function build_model!(dtr::DieterModel,
     );
 
     @constraint(m, MaxHeatPower[bu=BU, hp=HP, h=Hours],
-        HEAT_HP_IN[bu,hp,h] <= HeatMaxPower[bu,hp]
+        HEAT_HP_IN[bu,hp,h] <= time_ratio * HeatMaxPower[bu,hp]
     );
 
     next!(prog)
@@ -620,11 +604,13 @@ function generate_results!(dtr::DieterModel)
 
     model_dict = m.obj_dict
 
-    dtr.results = Dict(v[1] => convert_jump_container_to_df(model_dict[v[1]], dim_names=v[2]) for v in vars)
+    dtr.results = Dict(v[1] =>
+        convert_jump_container_to_df(model_dict[v[1]], dim_names=convert(Vector{Symbol},v[2])) for v in vars)
     # dtr.results = [convert_jump_container_to_df(value.(model_dict[v[1]]), dim_names=v[2]) for v in vars]
 
-    if abs(sum(dtr.results[:G_INF][!, :Hours]))  > (1e-5) ||
-       abs(sum(dtr.results[:EV_INF][!, :Hours])) > (1e-5)
+    if abs(sum(dtr.results[:G_INF][!, :Value]))  > (1e-5) ||
+       ( !ismissing(dtr.settings[:ev]) &&
+       abs(sum(dtr.results[:EV_INF][!, :Value])) > (1e-5) )
           @warn "Problem might be infeasable"
     end
 
