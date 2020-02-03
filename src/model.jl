@@ -108,23 +108,23 @@ function build_model!(dtr::DieterModel,
     CoP = dtr.parameters[:CoP]
 
 
-    MarginalCost = dtr.parameters[:MarginalCost]
-    InvestmentCost = dtr.parameters[:InvestmentCost]
-    InvestmentCostPower = dtr.parameters[:InvestmentCostPower]
-    InvestmentCostEnergy = dtr.parameters[:InvestmentCostEnergy]
-    FixedCost = dtr.parameters[:FixedCost]
+    MarginalCost = dtr.parameters[:MarginalCost] # Units: currency/MWh; Marginal cost per unit of generated energy
+    InvestmentCost = dtr.parameters[:InvestmentCost] # Units: currency/MW; Investment cost per unit of generation power capacity
+    InvestmentCostPower = dtr.parameters[:InvestmentCostPower] # Units: currency/MW; Annualised investment cost per unit of storage power capacity
+    InvestmentCostEnergy = dtr.parameters[:InvestmentCostEnergy] # Units: currency/MWh; Annualised investment cost per unit of storage energy capacity
+    FixedCost = dtr.parameters[:FixedCost] # Units: currency/MW; Fixed cost per unit of power capacity
     Availability = dtr.parameters[:Availability] # Units: MWh; Available energy from renewables as fraction of installed capacity within a time-interval
     MaxCapacity = dtr.parameters[:MaxCapacity] # Units: MW; Maximum installable capacity - power
     MaxEnergy = dtr.parameters[:MaxEnergy] # Units: MWh; Maximum installable storage capacity energy
-    MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio]
+    MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio] # Units: hours; Maximum ratio of stored energy to power delivery
     Efficiency = dtr.parameters[:Efficiency] # Units: [0,1]; Storage roundtrip efficiency
     StartLevel = dtr.parameters[:StartLevel] # Units: [0,1]; Initial storage level as fraction of storage energy installed
     Load = dtr.parameters[:Load] # Units: MWh per time-interval; wholesale energy demand within a time-interval (e.g. hourly or 1/2-hourly)
 
-    CurtailmentCost = dtr.settings[:cu_cost]
+    CurtailmentCost = dtr.settings[:cu_cost] # Units: currency/MWh; Cost per unit of generated energy that is curtailed
 
-    LoadIncreaseCost = dtr.parameters[:LoadIncreaseCost]
-    LoadDecreaseCost = dtr.parameters[:LoadDecreaseCost]
+    LoadIncreaseCost = dtr.parameters[:LoadIncreaseCost] # Units: $/MW; Load change costs for changing generation upward
+    LoadDecreaseCost = dtr.parameters[:LoadDecreaseCost] # Units: $/MW; Load change costs for changing generation downward
 
     @info "Start of model building:"
 
@@ -179,8 +179,8 @@ function build_model!(dtr::DieterModel,
     @constraint(m, ObjectiveFunction,
             (sum(MarginalCost[n,t] * G[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
 
-            + sum(LoadIncreaseCost[n,t] * G_UP[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours2)
-            + sum(LoadDecreaseCost[n,t] * G_DO[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
+            + LoadIncreaseCost[n,t] * sum(G_UP[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours2)
+            + LoadDecreaseCost[n,t] * sum(G_DO[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
 
             + sum(CurtailmentCost * CU[(n,t),h] for (n,t) in Nodes_NonDispatch, h in Hours)
 

@@ -139,6 +139,14 @@ function parse_nodes!(dtr::DieterModel, df::DataFrame)
     return nothing
 end
 
+"""
+Expected Dieter model parameters read into `dtr.parameters`:
+CapacityFactor, FuelCost, FixedCost, VariableCost, OvernightCost,
+CurtailmentCost, LoadIncreaseCost, LoadDecreaseCost, Lifetime,
+MaxCapacity, MaxEnergy,
+TechTypeCategory, Renewable, Dispatchable,
+FuelSource, Efficiency, CarbonContent, CO2_price
+"""
 function parse_base_technologies!(dtr::DieterModel, df::DataFrame)
 # function parse_base_technologies!(dtr::DieterModel, path::AbstractString)
     # df = CSV.read(path)
@@ -305,6 +313,8 @@ function parse_arcs!(dtr::DieterModel)
 end
 
 annuity(i,lifetime) = i*((1+i)^lifetime) / (((1+i)^lifetime)-1)
+# Equivalent alternative: annuity(i,lifetime) = i +  i/( ((1+i)^lifetime)-1 )
+
 
 function calc_inv_tech!(dtr::DieterModel)
     Nodes_Techs = dtr.sets[:Nodes_Techs]
@@ -351,9 +361,9 @@ function calc_mc!(dtr::DieterModel)
 
     fc = dtr.parameters[:FuelCost]
     eff = dtr.parameters[:Efficiency]
-    vc = dtr.parameters[:VariableCost]
     cc = dtr.parameters[:CarbonContent]
     co2 = dtr.settings[:co2]
+    vc = dtr.parameters[:VariableCost]
 
     marginalcost = Dict((n,t) => fc[n,t]/eff[n,t] + (cc[n,t]*co2)/eff[n,t] + vc[n,t] for (n,t) in Nodes_Techs)
     update_dict!(dtr.parameters, :MarginalCost, marginalcost)

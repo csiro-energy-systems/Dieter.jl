@@ -11,7 +11,7 @@ import CPLEX
 # %% Instantiate data model
 projectpath = joinpath(ENV["HOME"],"Documents/Projects/ESM/Dieter.jl/")
 # datapath = joinpath(projectpath,"testdata/")
-datapath = joinpath(projectpath,"stable_data/")
+datapath = joinpath(projectpath,"DTR_regions_test_data/")
 rdir = joinpath(projectpath,"results_stable/")
 
 # Dieter.initialise_data_dir_structure(datapath)
