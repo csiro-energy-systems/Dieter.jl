@@ -6,9 +6,8 @@
 -- Map_Region_Tech JOIN ...
 SELECT
 RegionID as Nodes,
-TechTypeID as Technologies,
+TechID as Technologies,
 1 as IncludeFlag
 FROM
-Technologies
-JOIN Technology_Types USING (TechTypeID)
-WHERE Technology_Types.IsStorage=1
+Tech_All_Parameters
+WHERE Tech_All_Parameters.IsStorage=1

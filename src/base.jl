@@ -48,6 +48,14 @@ function parse_data_to_model!(dtr::AbstractDieterModel; dataname::AbstractString
     # Calculated base parameters
     calc_base_parameters!(dtr)
 
+    return dfDict
+
+end
+
+function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString="")
+
+    dfDict = dtr.data["dataframes"]
+
     ## EV
     if !(dtr.settings[:ev] |> ismissing)
         # e.g. fileDict["ev"] = joinpath(datapath,"ev","ev.csv")
@@ -321,7 +329,7 @@ function calc_inv_tech!(dtr::DieterModel)
     # Nodes = dtr.sets[:Nodes]
     # Technologies = dtr.sets[:Technologies]
 
-    oc = dtr.parameters[:OvernightCost]
+    oc = dtr.parameters[:OvernightCostPower]
     lt = dtr.parameters[:Lifetime]
     i = dtr.settings[:interest]
 

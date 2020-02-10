@@ -1,9 +1,10 @@
 SELECT
 RegionID as Nodes,
-TechTypeID as Technologies,
+TechID as Technologies,
 1 as IncludeFlag
 FROM
-Technologies
+Tech_All_Parameters
+WHERE Tech_All_Parameters.IsStorage=0
 -- SELECT
 -- Map_Region_Tech.RegionID as Nodes,
 -- Map_Region_Tech.TechTypeID as Technologies,

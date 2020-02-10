@@ -1,33 +1,26 @@
 SELECT
-Technologies.RegionID AS Region,
-Technologies.TechTypeID AS Technologies,
-Technologies.CapacityFactor,
-Technologies.FuelCost,
-Technologies.FixedCost,
-Technologies.VariableCost,
-Technologies.OvernightCostPower AS OvernightCost,
---Technologies.OvernightCostEnergy,
-Technologies.CurtailmentCost,
-Technologies.LoadIncreaseCost,
-Technologies.LoadDecreaseCost,
-Technologies.InvestLifetime AS Lifetime,
---Technologies.InvestRecovery,
-Technologies.MaxCapacity,
-Technologies.MaxEnergy,
---Technologies.StartLevel,
---Technologies.MaxEnergyToPowerRatio,
---
-Technology_Types.TechTypeCategory,
-Technology_Types.IsRenewable AS Renewable,
-Technology_Types.IsDispatchable AS Dispatchable,
--- Technology_Types.IsStorage,
-Technology_Types.FuelSource,
-Technology_Types.Efficiency,
-Technology_Types.CarbonContent,
-CO2price AS CO2_price
+Tech_All_Parameters.RegionID AS Region,
+Tech_All_Parameters.TechID AS Technologies,
+Tech_All_Parameters.CapExist AS ExistingCapacity,
+Tech_All_Parameters.FuelCost,
+Tech_All_Parameters.Efficiency AS Efficiency,
+Tech_All_Parameters.FixedCost,
+Tech_All_Parameters.VariableCost,
+Tech_All_Parameters.OvernightCostPower AS OvernightCostPower,
+Tech_All_Parameters.OvernightCostEnergy,
+Tech_All_Parameters.CurtailmentCost,
+Tech_All_Parameters.LoadIncreaseCost,
+Tech_All_Parameters.LoadDecreaseCost,
+Tech_All_Parameters.InvestLifetime AS Lifetime,
+--Tech_All_Parameters.InvestRecovery,
+Tech_All_Parameters.MaxCapacity,
+Tech_All_Parameters.MaxEnergy,
+Tech_All_Parameters.StartLevel,
+Tech_All_Parameters.MaxEnergyToPowerRatio,
+Tech_All_Parameters.TechTypeCategory,
+Tech_All_Parameters.IsRenewable AS Renewable,
+Tech_All_Parameters.IsDispatchable AS Dispatchable,
+Tech_All_Parameters.IsHybrid AS Hybrid
 FROM
-(
-Technologies JOIN Technology_Types USING (TechTypeID)
-)
-LEFT JOIN Region_Scalars USING (RegionID) -- Region_Scalar JOIN provides CO2price
-WHERE Technology_Types.IsStorage=0
+Tech_All_Parameters
+WHERE Tech_All_Parameters.IsStorage=0
