@@ -22,6 +22,8 @@ function build_model!(dtr::DieterModel,
     time_ratio = hoursInYear//length(Hours)
     corr_factor = 1//time_ratio  # length(Hours)//hoursInYear
 
+    dtr.sets[:Hours] = Hours
+
     H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
 
     # Set definitions
@@ -119,12 +121,15 @@ function build_model!(dtr::DieterModel,
     MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio] # Units: hours; Maximum ratio of stored energy to power delivery
     Efficiency = dtr.parameters[:Efficiency] # Units: [0,1]; Storage roundtrip efficiency
     StartLevel = dtr.parameters[:StartLevel] # Units: [0,1]; Initial storage level as fraction of storage energy installed
+
     Load = dtr.parameters[:Load] # Units: MWh per time-interval; wholesale energy demand within a time-interval (e.g. hourly or 1/2-hourly)
 
     CurtailmentCost = dtr.settings[:cu_cost] # Units: currency/MWh; Cost per unit of generated energy that is curtailed
 
     LoadIncreaseCost = dtr.parameters[:LoadIncreaseCost] # Units: $/MW; Load change costs for changing generation upward
     LoadDecreaseCost = dtr.parameters[:LoadDecreaseCost] # Units: $/MW; Load change costs for changing generation downward
+
+    TransferLimit = dtr.parameters[:TransferLimit] # Units: MW; Interconnector power transfer capability
 
     @info "Start of model building:"
 
@@ -282,6 +287,12 @@ function build_model!(dtr::DieterModel,
         FLOW[(from,to),h] + FLOW[(to,from),h] == 0
     );
 
+    # Energy flow bounds:
+    @info "Energy flow bounds."
+    @constraint(m, FlowEnergyBound[(from,to)=Arcs,h=Hours],
+        FLOW[(from,to)] <= time_ratio * TransferLimit[(from,to)]
+    );
+
     # Generation level start - con2b_loadlevelstart
     @info "Generation level start."
     @constraint(m, GenLevelStart[(n,t)=Nodes_Dispatch],
@@ -297,7 +308,7 @@ function build_model!(dtr::DieterModel,
     next!(prog)
 
     # Variable upper bound on dispatchable generation by capacity
-    @info "Variable upper bound on non-dispatchable generation by capacity."
+    @info "Variable upper bound on dispatchable generation by capacity."
     @constraint(m, MaxGenerationDisp[(n,t)=Nodes_Dispatch,h=Hours],
         G[(n,t),h] <= time_ratio * N_TECH[(n,t)]
     );

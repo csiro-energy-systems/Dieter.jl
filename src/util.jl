@@ -260,3 +260,62 @@ function convert_jump_container_to_df(var::VariableRef;
 
     return convert_jump_container_to_df([var],dim_names=dim_names,value_col=value_col)
 end
+
+"""
+Function to convert an Array{Any,2} with a header row of column name strings to a DataFrame
+ - Thanks: https://stackoverflow.com/questions/25894634/dataframe-from-array-with-header
+"""
+table2df(mat) = DataFrame(mat[2:end,:], Symbol.(mat[1,:]))
+
+"""
+    tableToDict(tab::Array{Any,2}; keycols::Array{Int64,1}=[1])
+
+Create a dictionary from an array in table form, where the table has:
+ - key-index or indices in the `keycol` array (integer indexing), and
+ - the column names for data appear (as strings) in the first row.
+"""
+function tableToDict(tab::Array{Any,2}; keycols::Array{Int64,1}=[1])
+    DataDict = Dict{Union{String,Tuple{String,Vararg{String}}},Any}() # initialise the dictionary that the function returns
+
+    KeysName    = tab[1,keycols]      # the column label on the key column
+    ColumnNames = tab[1,:]            # all the column names
+    KeyArray    = tab[2:end,keycols]  # the keys for each row
+    TableData   = tab[2:end,:]        # the data in the input array
+
+    # println(KeysName)
+    # println(ColumnNames)
+    # println(Keys)
+    # println(TableData)
+    # println(collect(enumerate(Keys)))
+    NumberRows    = size(TableData)[1]
+    NumberColumns = size(TableData)[2]
+    # Index columns with the key column removed:
+    DataColumnIndices = setdiff(1:NumberColumns,keycols)
+
+    # println(DataColumnIndices)
+
+    if length(keycols) == 1 # # Make the DataDict key a singleton
+        Keys = KeyArray
+    else # Make the DataDict keys into Tuples
+        Keys = [Tuple(KeyArray[i,:]) for i in 1:NumberRows]
+    end
+
+    for (k, key_value) in enumerate(Keys)
+        DataDict[key_value] = Dict(ColumnNames[col] => TableData[k,col]
+                                        for col in DataColumnIndices)
+    end
+    return DataDict
+end
+
+function SQLqueryToDict(sqlquery::SQLite.Query{}; keycols::Array{Int64,1}=[1])
+    df = DataFrame(sqlquery)
+    A = convert(Matrix, df)
+    # or:
+    # A = Tables.matrix(tb)s
+    # Convert DataFrame to a table with column headers
+    tableArray = [reshape(string.(names(df)),1,size(A)[2]); A]
+
+    DataDict = tableToDict(tableArray; keycols=keycols)
+
+    return DataDict
+end

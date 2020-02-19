@@ -247,7 +247,7 @@ function initialise_set_relation_data!(dtr)
     rel_node_demand = create_relation(dfDict["map_node_demand"],:Nodes,:DemandRegion,:IncludeFlag)
 
     # Relation between a node and incident/connected nodes (inter-connectors)
-    rel_node_incidence = create_relation(dfDict["arcs"],:FromNodes,:ToNodes,:IncludeFlag)
+    rel_node_incidence = create_relation(dfDict["arcs"],:FromNode,:ToNode,:TransferLimit)
 
     # Store the results:
     dtr.data["relations"]["rel_node_tech"] = rel_node_tech
@@ -307,7 +307,7 @@ function parse_set_relations!(dtr)
 
 end
 
-function parse_arcs!(dtr::DieterModel)
+function parse_arcs!(dtr::DieterModel, df::DataFrame)
 
     Nodes = dtr.sets[:Nodes]
 
@@ -315,7 +315,10 @@ function parse_arcs!(dtr::DieterModel)
     rel_node_incidence = dtr.data["relations"]["rel_node_incidence"]
     dtr.sets[:Arcs] = tuple2_filter(rel_node_incidence, Nodes, Nodes)
 
-    dtr.sets[:Arcs_From] = disallowmissing(unique(dtr.data["dataframes"]["arcs"][!,:FromNodes]))
+    dtr.sets[:Arcs_From] = disallowmissing(unique(df[!,:FromNode]))
+
+    params = map_idcol(df, [:FromNode, :ToNode], skip_cols=Symbol[])
+    for (k,v) in params update_dict!(dtr.parameters, k, v) end
 
     return nothing
 end

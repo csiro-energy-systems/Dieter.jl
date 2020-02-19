@@ -1,7 +1,7 @@
 SELECT
 Tech_All_Parameters.RegionID AS Region,
 Tech_All_Parameters.TechID AS Storages,
-Tech_All_Parameters.CapExist AS ExistingCapacity,
+Tech_All_Parameters.CapacityExist AS ExistingCapacity,
 Tech_All_Parameters.FuelCost,
 Tech_All_Parameters.Efficiency AS Efficiency,
 Tech_All_Parameters.FixedCost,
