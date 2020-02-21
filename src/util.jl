@@ -307,7 +307,7 @@ function tableToDict(tab::Array{Any,2}; keycols::Array{Int64,1}=[1])
     return DataDict
 end
 
-function SQLqueryToDict(sqlquery::SQLite.Query{}; keycols::Array{Int64,1}=[1])
+function SQLqueryToDict(sqlquery::SQLite.Query; keycols::Array{Int64,1}=[1])
     df = DataFrame(sqlquery)
     A = convert(Matrix, df)
     # or:

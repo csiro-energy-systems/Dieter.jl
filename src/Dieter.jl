@@ -14,7 +14,7 @@ using Arrow  # TODO: review whether Arrow needs to be a dependency
 # using Missings
 
 using JuMP
-# import MathOptInterface
+import MathOptInterface
 # const MOI = MathOptInterface
 # @reexport using JuMP
 using ProgressMeter

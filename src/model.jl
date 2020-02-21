@@ -9,7 +9,7 @@ The `nthhour` parameter should be 0 for hourly steps, 1 for 2-hourly steps and
 -1 for half-hourly steps. The data must match the time-steps of the `nthhour` parameter.
 """
 function build_model!(dtr::DieterModel,
-    solver::OptimizerFactory;
+    solver; #::MathOptInterface.AbstractOptimizer;
     nthhour::Int=0)
 
     dtr.settings[:nthhour] = nthhour
@@ -325,10 +325,12 @@ function build_model!(dtr::DieterModel,
     );
 
     # Maximum generated energy allowed.
-    @info "Maximum generated energy allowed."
-    @constraint(m, MaxEnergyGenerated[(n,t)=Nodes_Techs; !(MaxEnergy[n,t] |> ismissing)],
-        sum(G[(n,t),h] for h in Hours) <= MaxEnergy[n,t]
-    );
+    if !(filter(x -> !ismissing(x.second), dtr.parameters[:MaxEnergy]) |> isempty)
+        @info "Maximum generated energy allowed."
+        @constraint(m, MaxEnergyGenerated[(n,t)=Nodes_Techs; !(MaxEnergy[n,t] |> ismissing)],
+            sum(G[(n,t),h] for h in Hours) <= MaxEnergy[n,t]
+        );
+    end
 
     next!(prog)
 
@@ -420,10 +422,12 @@ function build_model!(dtr::DieterModel,
         STO_OUT[(n,sto),h] <= time_ratio * N_STO_P[(n,sto)]
     );
 
-    @info "Storage: maximum energy allowed."
-    @constraint(m, MaxEnergyStorage[(n,sto)=Nodes_Storages; !(MaxEnergy[n,sto] |> ismissing)],
-        N_STO_E[(n,sto)] <= MaxEnergy[n,sto]
-    );
+    if !(filter(x -> !ismissing(x.second), dtr.parameters[:MaxEnergy]) |> isempty)
+        @info "Storage: maximum energy allowed."
+        @constraint(m, MaxEnergyStorage[(n,sto)=Nodes_Storages; !(MaxEnergy[n,sto] |> ismissing)],
+            N_STO_E[(n,sto)] <= MaxEnergy[n,sto]
+        );
+    end
 
     @info "Storage: maximum power allowed."
     @constraint(m, MaxPowerStorage[(n,sto)=Nodes_Storages; !(MaxCapacity[n,sto] |> ismissing)],

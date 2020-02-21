@@ -2,12 +2,17 @@
 
 # %% Load packages
 using Dieter
+
+import Dieter: parse_file, parse_nodes!, parse_base_technologies!, parse_storages!, parse_load!, parse_availibility!
+import Dieter: initialise_set_relation_data!, parse_set_relations!,parse_arcs!, calc_base_parameters!
+
 using JuMP
+import MathOptInterface
 import CPLEX
 
-using LibPQ
+# using LibPQ
 using Tables
-import DataFrames
+using DataFrames
 using DataFramesMeta
 import SQLite
 import CSV
@@ -19,17 +24,17 @@ using TimeSeries
 
 
 # %% Year parameters
-Demand_Year = 2018 # Financial year 2019-2019
+Demand_Year = 2019 # Financial year 2018-2019
 
 # %% Data paths and connections
 
 # projectpath = joinpath(ENV["HOME"],"Documents/Projects/ESM/Dieter.jl/")
 projectpath = pwd()
 # datapath = joinpath(projectpath,"testdata/")
-datapath = joinpath(projectpath,"STABLE_run_data/")
-rdir = joinpath(projectpath,"results_stable/")
+datapath = joinpath(projectpath,"STABLE_run_data")
+rdir = joinpath(projectpath,"results_stable")
 
-trace_read_path = joinpath(datapath,"STABLE_input_traces/")
+trace_read_path = joinpath(datapath,"STABLE_input_traces")
 wind_traces_path = joinpath(trace_read_path,"REZ_Wind_Traces_RefYear2019_FYE2030.csv")
 solar_traces_path = joinpath(trace_read_path,"REZ_Solar_Traces_RefYear2019_FYE2030.csv")
 
@@ -70,9 +75,6 @@ dfDict = dtr.data["dataframes"]
 
 # %% Base data
 
-import Dieter: parse_file, parse_nodes!, parse_base_technologies!, parse_storages!, parse_load!, parse_availibility!
-import Dieter: initialise_set_relation_data!, parse_set_relations!,parse_arcs!, calc_base_parameters!
-
 dfDict["nodes"] = parse_file(fileDict["nodes"]; dataname=dataname)
 parse_nodes!(dtr,dfDict["nodes"])
 
@@ -81,13 +83,13 @@ dfDict["tech"] = parse_file(fileDict["tech"]; dataname=dataname)
 
 # %% Modify data in-frame:
 
-# Make HydRoR (Hydro Run of River) plants Dispatchable
+# Make Hydro (Hydro Gravity and Run of River) plants Dispatchable
 # dt = dfDict["tech"]
-# @linq dt |> where(:Technologies .== "HydRoR_Exi") |> select(:Dispatchable)
-dfDict["tech"] = @byrow! dfDict["tech"] if :Technologies == "HydRoR_Exi"; :Dispatchable = 1 end
-dfDict["tech"] = @byrow! dfDict["tech"] if :Technologies == "HydRoR_New"; :Dispatchable = 1 end
-# @linq dt |> where(:Technologies .== "HydRoR_Exi") |> select(:Dispatchable)
-@linq dfDict["tech"] |> where(:Technologies .== "HydRoR_Exi") |> select(:Dispatchable)
+# @linq dt |> where(:Technologies .== "Hydro_Exi") |> select(:Dispatchable)
+dfDict["tech"] = @byrow! dfDict["tech"] if :Technologies == "Hydro_Exi"; :Dispatchable = 1 end
+dfDict["tech"] = @byrow! dfDict["tech"] if :Technologies == "Hydro_New"; :Dispatchable = 1 end
+# @linq dt |> where(:Technologies .== "Hydro_Exi") |> select(:Dispatchable)
+@linq dfDict["tech"] |> where(:Technologies .== "Hydro_Exi") |> select(:Dispatchable)
 
 # Filter out new technologies and overwrite the DataFrame
 # dfDict["tech"] = @where(dfDict["tech"], occursin.(r"_Exi",:Technologies ))
@@ -133,7 +135,7 @@ select(:Nodes)
 hydpump_nodes = df_phn[!,:Nodes]
 # Filter out locations without existing pumped hydro, and "BattInvWind_New"
 dfDict["map_node_storages"] = @byrow! dfDict["map_node_storages"] begin
-      if ( (:Technologies == "HydPump_New" && !(:Nodes in hydpump_nodes))
+      if (  :Technologies == "HydPump_New"  # && !(:Nodes in hydpump_nodes))
          || :Technologies == "BattInvWind_New"
          )
             :IncludeFlag = 0
@@ -153,7 +155,7 @@ parse_arcs!(dtr,dfDict["arcs"])
 # e.g. fileDict["load"] = joinpath(datapath,"base","load.csv")
 # dfDict["load"] = parse_file(fileDict["load"]; dataname=dataname)
 
-load_trace_datapath = joinpath(trace_read_path,"Load_FYE2019.csv")
+load_trace_datapath = joinpath(trace_read_path,"Load_FYE$(Demand_Year).csv")
 
 # In-line function:
 # getTableAsDF(conn,string) = DataFrame(Tables.columntable(LibPQ.execute(conn,string)))
@@ -163,11 +165,14 @@ load_trace_datapath = joinpath(trace_read_path,"Load_FYE2019.csv")
 # df_OpDem = getTableAsDF(conn,"select * from nem_op_demand where getfinyr(datetime)=$(Demand_Year)")
 # CSV.write(load_trace_datapath,df_OpDem)
 
+# The operational demand table has time stamps for keys and one column per region.
 df_OpDem = DataFrame(CSV.File(load_trace_datapath))
 
-# The operational demand table has time stamps for keys and one column per region.
-
 # Transformations of the raw data:
+
+# Obtain hourly approximation:
+df_OpDem = df_OpDem[1:2:end,names(df_OpDem)]
+
 # ta_OpDem = TimeArray(df_OpDem, timestamp = :datetime)
 dropmissing!(df_OpDem)
 insertcols!(df_OpDem, 1, TimeIndex=collect(1:nrow(df_OpDem)))
@@ -186,6 +191,8 @@ df_OpDem_stack = stack(df_OpDem, region_names, :TimeIndex)
 dfDict["load"] = @linq df_OpDem_stack |>
                   transform(DemandRegion = String.(:variable), Load = :value) |>
                   select(:TimeIndex,:DemandRegion,:Load)
+
+# %%
 parse_load!(dtr, dfDict["load"])
 
 # %% Construct availability traces
@@ -201,6 +208,10 @@ trace_corr = Dieter.SQLqueryToDict(sqlquery_rez_trace)
 
 wind_traces = readtimearray(wind_traces_path)
 df_wind_traces = DataFrame(wind_traces)
+
+# Obtain hourly approximation:
+df_wind_traces = df_wind_traces[1:2:end,names(df_wind_traces)]
+
 len_traces = nrow(df_wind_traces)
 insertcols!(df_wind_traces, 1, TimeIndex=collect(1:len_traces))
 select!(df_wind_traces, Not(:timestamp))
@@ -231,16 +242,21 @@ end
 
 solar_traces = readtimearray(solar_traces_path)
 df_solar_traces = DataFrame(solar_traces)
+
+# Obtain hourly approximation:
+df_solar_traces = df_solar_traces[1:2:end,names(df_solar_traces)]
+
 len_traces = nrow(df_solar_traces)
 insertcols!(df_solar_traces, 1, TimeIndex=collect(1:len_traces))
 select!(df_solar_traces, Not(:timestamp))
 
 # tech_name = "WindOn_Exi"
 # if tech_name in ["BattInvWind_Exi", "BattInvWind_New"]
-for tech_name in ["SolFixedPV_Exi", "SolLargePV_Exi", "SolLargePV_New", "SolThermal_New"]
+# for tech_name in ["SolFixedPV_Exi", "SolLargePV_Exi", "SolLargePV_New", "SolThermal_New"]
+for tech_name in ["SolarPV_Exi", "SolarPV_New", "SolThermal_New"]
       df_trace_mod = copy(df_solar_traces)
 
-      if tech_name in ["SolFixedPV_Exi", "SolLargePV_Exi"]
+      if tech_name in ["SolarPV_Exi"]
             for rz in Symbol.(dtr.sets[:REZones])
                   if rz in names(df_trace_mod) && ismissing(trace_corr[String(rz)]["Solar_Exi"])
                         select!(df_trace_mod, Not(rz))
@@ -292,8 +308,10 @@ Dieter.parse_extensions!(dtr,dataname=sql_db_path)
 # Construct an optimizer factory
 # solver = JuMP.with_optimizer(Clp.Optimizer)
 # solver = JuMP.with_optimizer(Gurobi.Optimizer)
-solver = JuMP.with_optimizer(CPLEX.Optimizer)
-build_model!(dtr,solver; nthhour=-1)
+# solver = JuMP.with_optimizer(CPLEX.Optimizer)
+solver = CPLEX.Optimizer
+# build_model!(dtr,solver; nthhour=-1)
+build_model!(dtr,solver)
 
 # %% Fix necessary variables
 
