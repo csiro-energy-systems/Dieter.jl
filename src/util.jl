@@ -15,6 +15,11 @@ function check_files_exist(fileDict::Dict{String,String})
     return true
 end
 
+"Check if a `Dict`ionary has all missing values; if so, return `true`"
+function isDictAllMissing(dict::Dict{T,S} where {T, S <: Union{Missing, Any}})
+    return filter(x -> !ismissing(x.second), dict) |> isempty
+end
+
 "Parse a given data file and return the desired data in a `DataFrame`."
 function parse_file(file::String; dataname::String="")
     filetype=split(lowercase(file), '.')[end]

@@ -122,6 +122,8 @@ function build_model!(dtr::DieterModel,
     Efficiency = dtr.parameters[:Efficiency] # Units: [0,1]; Storage roundtrip efficiency
     StartLevel = dtr.parameters[:StartLevel] # Units: [0,1]; Initial storage level as fraction of storage energy installed
 
+    MinStableGen = dtr.parameters[:MinStableGen] # Units: [0,1]; Minimum stable operational level for generation as fraction of Capacity in MW.
+
     Load = dtr.parameters[:Load] # Units: MWh per time-interval; wholesale energy demand within a time-interval (e.g. hourly or 1/2-hourly)
 
     CurtailmentCost = dtr.settings[:cu_cost] # Units: currency/MWh; Cost per unit of generated energy that is curtailed
@@ -325,7 +327,7 @@ function build_model!(dtr::DieterModel,
     );
 
     # Maximum generated energy allowed.
-    if !(filter(x -> !ismissing(x.second), dtr.parameters[:MaxEnergy]) |> isempty)
+    if !(isDictAllMissing(MaxEnergy))
         @info "Maximum generated energy allowed."
         @constraint(m, MaxEnergyGenerated[(n,t)=Nodes_Techs; !(MaxEnergy[n,t] |> ismissing)],
             sum(G[(n,t),h] for h in Hours) <= MaxEnergy[n,t]
@@ -334,6 +336,35 @@ function build_model!(dtr::DieterModel,
 
     next!(prog)
 
+# %% * ----------------------------------------------------------------------- *
+#    ***** Operational conditions and constraints *****
+#    * ----------------------------------------------------------------------- *
+
+    # Minimum stable generation levels (for inflexible technologies)
+
+    if !(isempty(keys(MinStableGen)))
+        @info "Minimum stable generation levels"
+        # @constraint(m, MinStableGeneration[(n,t)=Nodes_Techs; !(MinStableGen[n,t] |> ismissing)],
+        #     sum(G[(n,t),h] for h in Hours) >= MinStableGen[n,t]*length(Hours)
+        #     or
+        @constraint(m, MinStableGeneration[(n,t)=keys(MinStableGen), h=Hours; !(MinStableGen[n,t] |> ismissing)],
+            G[(n,t),h] >= MinStableGen[n,t]*time_ratio*N_TECH[(n,t)]
+        );
+    end
+#=
+    if !(isDictAllMissing(MaxRampRate))
+        @info "Maximum ramp rates"
+        @constraint(m, RampingLimits[(n,t)=Nodes_Techs, h=Hours; !(MaxRampRate[n,t] |> ismissing)],
+            -MaxRampRate[n,t] <= G_UP[(n,t),h] - G_DO[(n,t),h] <= MaxRampRate[n,t]
+    end
+
+    @constraint(m, MinInertialCapacity[h=Hours],
+        sum(G[(n,t),h] for (n,t)=Nodes_Techs if !ismissing(IsInertial[n,t]))
+            >= min_inertial_fraction * sum(G[(n,t),h] for (n,t)=Nodes_Techs)
+    );
+
+    next!(prog)
+=#
 # %% * ----------------------------------------------------------------------- *
 #    ***** Quotas for renewable technologies *****
 #    * ----------------------------------------------------------------------- *
@@ -422,7 +453,7 @@ function build_model!(dtr::DieterModel,
         STO_OUT[(n,sto),h] <= time_ratio * N_STO_P[(n,sto)]
     );
 
-    if !(filter(x -> !ismissing(x.second), dtr.parameters[:MaxEnergy]) |> isempty)
+    if !(isDictAllMissing(dtr.parameters[:MaxEnergy]))
         @info "Storage: maximum energy allowed."
         @constraint(m, MaxEnergyStorage[(n,sto)=Nodes_Storages; !(MaxEnergy[n,sto] |> ismissing)],
             N_STO_E[(n,sto)] <= MaxEnergy[n,sto]

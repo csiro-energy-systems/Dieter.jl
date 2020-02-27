@@ -303,6 +303,16 @@ Dieter.parse_extensions!(dtr,dataname=sql_db_path)
 # [x[1] for x in filter(x -> (x[2]=="REZone"),s[:Nodes_Types])]
 # [x[1] for x in filter(x -> (x[2]=="TxZone"),s[:Nodes_Types])]
 
+
+# %% Additional parameters
+
+fileDict["min_stable_gen"] = joinpath(datapath,"base","min_stable_gen.sql")
+
+dfDict["min_stable_gen"] = parse_file(fileDict["min_stable_gen"]; dataname=dataname)
+
+params_msg = Dieter.map_idcol(dfDict["min_stable_gen"], [:Region, :Technologies], skip_cols=Symbol[])
+for (k,v) in params_msg Dieter.update_dict!(dtr.parameters, k, v) end
+
 # %% Initialise model
 
 # Construct an optimizer factory
@@ -334,10 +344,10 @@ NewCapDict = filter(x -> ismissing(x.second), dtr.parameters[:ExistingCapacity])
 
 for (n,t) in keys(ExistingCapDict)
       if (n,t) in dtr.sets[:Nodes_Techs]
-            JuMP.fix(N_TECH[(n,t)], ExistingCapDict[(n,t)]; force=true)
+            JuMP.set_lower_bound(N_TECH[(n,t)], ExistingCapDict[(n,t)]) # ; force=true)
       end
       if (n,t) in dtr.sets[:Nodes_Storages]
-            JuMP.fix(N_STO_P[(n,t)], ExistingCapDict[(n,t)]; force=true)
+            JuMP.set_lower_bound(N_STO_P[(n,t)], ExistingCapDict[(n,t)]) # ; force=true)
             JuMP.fix(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*ExistingCapDict[(n,t)]; force=true)
       end
 end
@@ -364,12 +374,12 @@ end
 
 # %% Specialised solver settings
 # CPLEX:
-# JuMP.set_parameter(dtr.model,"CPX_PARAM_THREADS", 4)        #  number of threads
-# JuMP.set_parameter(dtr.model, "CPX_PARAM_PARALLELMODE", 1)   #   -1: Opportunistic parallel, 0: Automatic parallel, 1: Deterministic
-# JuMP.set_parameter(dtr.model, "CPX_PARAM_LPMETHOD", 4)       #  0: auto, 1: primal simplex, 2: dual, 3: network, 4: barrier
-# JuMP.set_parameter(dtr.model, "CPX_PARAM_BARCROSSALG", 2)    #  0: automatic, 1: primal, 2: dual
-# JuMP.set_parameter(dtr.model, "CPX_PARAM_SOLUTIONTYPE", 2)   #  Specifies type of solution (basic or non basic) that CPLEX produces
-# JuMP.set_parameter(dtr.model, "CPX_PARAM_BAREPCOMP", 1e-8)   # Sets the tolerance on complementarity for convergence; default: 1e-8.
+# JuMP.set_optimizer_attribute(dtr.model,"CPX_PARAM_THREADS", 4)        #  number of threads
+JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_PARALLELMODE", 0)   #   -1: Opportunistic parallel, 0: Automatic parallel, 1: Deterministic
+JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_LPMETHOD", 1)       #  0: auto, 1: primal simplex, 2: dual, 3: network, 4: barrier
+# JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_BARCROSSALG", 2)    #  0: automatic, 1: primal, 2: dual
+# JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_SOLUTIONTYPE", 2)   #  Specifies type of solution (basic or non basic) that CPLEX produces
+# JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_BAREPCOMP", 1e-8)   # Sets the tolerance on complementarity for convergence; default: 1e-8.
 
 # %% Solve the model and generate results
 solve_model!(dtr)
