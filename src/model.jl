@@ -40,24 +40,27 @@ function build_model!(dtr::DieterModel,
 
     DemandRegions = dtr.sets[:DemandRegions]
 
-    min_res = Dict{String,Float64}()
+    # Transformations on the minimum renewable share settings:
+    min_res_dict = Dict{String,Float64}()
     if isa(dtr.settings[:min_res],Number)
         for n in DemandRegions
-            min_res[n] = dtr.settings[:min_res]
+            min_res_dict[n] = dtr.settings[:min_res_dict]
         end
     elseif isa(dtr.settings[:min_res],Dict)
-        min_res = dtr.settings[:min_res]
+        min_res_dict = dtr.settings[:min_res]
+        dtr.settings[:min_res] = minimum(collect(values(min_res_dict)))  # overwrite as a number, the smallest share.
+        println("The `min_res` setting is now equal to $(dtr.settings[:min_res])")
     else
-        error("The parameter `min_res` is not of type `Number` or `Dict`.")
+        error("The parameter `min_res_dict` is not of type `Number` or `Dict`.")
     end
-    dtr.settings[:min_res] = min_res
-    @info "The `min_res` setting is now equal to "
-    @info min_res
-    for (k,v) in min_res
+    dtr.settings[:min_res_dict] = min_res_dict
+    @info "The `min_res_dict` setting is currently equal to "
+    @info min_res_dict
+    for (k,v) in min_res_dict
         if !(0 <= v <= 100)
-            error("The setting `min_res` of value $v for Demand Region $k is not in the interval [0,100].")
+            error("The setting in `min_res_dict` of value $v for Demand Region $k is not in the interval [0,100].")
         elseif (0 <= v <= 1)
-            @warn "The setting `min_res` of value $v for Demand Region $k is a percentage, not necessarily a fraction in [0,1]."
+            @warn "Note: The setting in `min_res_dict` of value $v for Demand Region $k is a percentage, not necessarily a fraction in [0,1]."
         end
     end
 
@@ -149,7 +152,7 @@ function build_model!(dtr::DieterModel,
         G_REZ[REZones,Hours], (base_name="Generation_renewable_zones", lower_bound=0) # Units: MWh per time-interval; Generation level - renewable energy zone tech. & stor.
         G_TxZ[TxZones,Hours], (base_name="Generation_transmission_zones", lower_bound=0) # Units: MWh per time-interval; Generation level - transmission zone tech. & stor.
         # G_RES[Nodes_Renew, h in HOURS], (base_name="Generation_renewable", lower_bound=0) # Units: MWh; Generation level - renewable gen. tech.
-        CU[Nodes_NonDispatch, Hours], (base_name="Curtailment_renewables", lower_bound=0) # Units: MWh per time-interval; Non-dispatchable curtailment
+        # CU[Nodes_NonDispatch, Hours], (base_name="Curtailment_renewables", lower_bound=0) # Units: MWh per time-interval; Non-dispatchable curtailment
         STO_IN[Nodes_Storages, Hours], (base_name="Storage_inflow", lower_bound=0) # Units: MWh per time-interval; Storage energy inflow
         STO_OUT[Nodes_Storages, Hours], (base_name="Storage_outflow", lower_bound=0) # Units: MWh per time-interval; Storage energy outflow
         STO_L[Nodes_Storages, Hours], (base_name="Storage_level", lower_bound=0) # Units: MWh at a given time-interval; Storage energy level
@@ -189,7 +192,7 @@ function build_model!(dtr::DieterModel,
             + LoadIncreaseCost[n,t] * sum(G_UP[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours2)
             + LoadDecreaseCost[n,t] * sum(G_DO[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
 
-            + sum(CurtailmentCost * CU[(n,t),h] for (n,t) in Nodes_NonDispatch, h in Hours)
+            # + sum(CurtailmentCost * CU[(n,t),h] for (n,t) in Nodes_NonDispatch, h in Hours)
 
             + sum(infeas_cost * G_INF[n,h] for n in Nodes, h in Hours)
 
@@ -292,7 +295,7 @@ function build_model!(dtr::DieterModel,
     # Energy flow bounds:
     @info "Energy flow bounds."
     @constraint(m, FlowEnergyBound[(from,to)=Arcs,h=Hours],
-        FLOW[(from,to)] <= time_ratio * TransferLimit[(from,to)]
+        FLOW[(from,to),h] <= time_ratio * TransferLimit[(from,to)]
     );
 
     # Generation level start - con2b_loadlevelstart
@@ -317,7 +320,8 @@ function build_model!(dtr::DieterModel,
 
     @info "Variable upper bound on non-dispatchable generation by capacity."
     @constraint(m, MaxGenerationNonDisp[(n,t)=Nodes_NonDispatch,h=Hours],
-        G[(n,t),h] + CU[(n,t),h] == Availability[n,t,h] * time_ratio * N_TECH[(n,t)]
+        # G[(n,t),h] + CU[(n,t),h] == Availability[n,t,h] * time_ratio * N_TECH[(n,t)]
+        G[(n,t),h] <= Availability[n,t,h] * time_ratio * N_TECH[(n,t)]
     );
 
     # Maximum capacity allowed
@@ -380,7 +384,7 @@ function build_model!(dtr::DieterModel,
         )
         + sum(H2_G2P[g2p,h] - H2_P2G[p2g,h] for p2g in P2G for g2p in G2P ) # for h in Hours)
         >=
-        (min_res[n]/100)*(
+        (min_res_dict[n]/100)*(
             sum(
                sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
              + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
@@ -617,7 +621,7 @@ function generate_results!(dtr::DieterModel)
         :G_UP => [:Nodes_Dispatch, :Hours],
         :G_DO => [:Nodes_Dispatch, :Hours],
         :G_INF => [:Nodes,:Hours],
-        :CU => [:Nodes_NonDispatch, :Hours],
+        # :CU => [:Nodes_NonDispatch, :Hours],
         :STO_IN => [:Nodes_Storages, :Hours],
         :STO_OUT => [:Nodes_Storages, :Hours],
         :STO_L => [:Nodes_Storages, :Hours],

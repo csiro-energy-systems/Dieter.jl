@@ -3,7 +3,7 @@
 
 function get_installed_capacities(dtr::DieterModel)
     df = copy(dtr.results[:N_TECH])
-    df[!, :Category] = [dtr.parameters[:FuelSource][x] for x in df[!,:Nodes_Techs]]
+    df[!, :Category] = [dtr.parameters[:FuelType][x] for x in df[!,:Nodes_Techs]] # FuelSource -> FuelType
 
     df = aggregate(df[!,[:Category, :Value]], :Category, sum)
     rename!(df, :Value_sum => :InstalledPower)
@@ -15,7 +15,7 @@ function get_generation(dtr::DieterModel)
 
     df = copy(dtr.results[:G])
     hours = unique(df[!,:Hours])
-    df[!,:Category] = [dtr.parameters[:FuelSource][x] for x in df[!,:Nodes_Techs]]
+    df[!,:Category] = [dtr.parameters[:FuelType][x] for x in df[!,:Nodes_Techs]] # FuelSource -> FuelType
     df = aggregate(df[!,[:Category,:Value]], :Category, sum)
     rename!(df, :Value_sum => :Generation)
 

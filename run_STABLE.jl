@@ -19,12 +19,10 @@ import CSV
 using TimeSeries
 # import XLSX
 
-# using Plots
-# using ColorSchemes
-
-
 # %% Year parameters
 Demand_Year = 2019 # Financial year 2018-2019
+Reference_Year = Demand_Year # 2019  # Year of data set to use for renewable traces
+Trace_Year = 2030 # Which year to use from the Reference_Year trace dataset
 
 # %% Data paths and connections
 
@@ -376,16 +374,16 @@ end
 # CPLEX:
 # JuMP.set_optimizer_attribute(dtr.model,"CPX_PARAM_THREADS", 4)        #  number of threads
 JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_PARALLELMODE", 0)   #   -1: Opportunistic parallel, 0: Automatic parallel, 1: Deterministic
-JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_LPMETHOD", 1)       #  0: auto, 1: primal simplex, 2: dual, 3: network, 4: barrier
+JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_LPMETHOD", 6)       #  0: auto, 1: primal simplex, 2: dual, 3: network, 4: barrier, 6: Concurrent
 # JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_BARCROSSALG", 2)    #  0: automatic, 1: primal, 2: dual
 # JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_SOLUTIONTYPE", 2)   #  Specifies type of solution (basic or non basic) that CPLEX produces
-# JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_BAREPCOMP", 1e-8)   # Sets the tolerance on complementarity for convergence; default: 1e-8.
+JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_BAREPCOMP", 1e-6)   # Sets the tolerance on complementarity for convergence; default: 1e-8.
 
 # %% Solve the model and generate results
 solve_model!(dtr)
-# generate_results!(dtr)
-#
-# # %% Analysis
+generate_results!(dtr)
+
+# %% Analysis
 # # include("analysis.jl")
 # df_summ = summarize_result(dtr,del_zeros=false)
 #
@@ -395,11 +393,132 @@ solve_model!(dtr)
 # # rdir = joinpath(projectpath,resultspath)
 # save_results(dtr, rdir)
 #
-# # %% Merge results with other runs
+# %% Merge results with other runs
 # # include("merge.jl")
 # post_process_results(rdir)
 #
-# # %% Plotting
+# %% Filtering results
+
+res = dtr.results
+df = res[:G]
+df_aug = @byrow! df begin
+              @newcol Nodes::Array{String}
+              @newcol Techs::Array{String}
+              :Nodes = :Nodes_Techs[1]
+              :Techs = :Nodes_Techs[2]
+       end
+# dfDict = dtr.data["dataframes"]
+df_nodes = dfDict["nodes"]
+
+node2DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
+
+df_spatial = join(df_aug,df_nodes,on=:Nodes)
+df_filter = select(df_spatial,[:Nodes,:Techs,:DemandRegion,:Hours,:Value])
+
+dfStates = Dict{String,DataFrame}()
+
+for reg in dtr.sets[:DemandRegions]
+      dfStates[reg] = @linq df_filter |>
+                        where(:DemandRegion .== reg) |>
+                        select(:Nodes,:Techs,:Hours,:Value) |>
+                        by([:Techs,:Hours], Level = sum(:Value))
+end
+
+df_flow = res[:FLOW]
+df_flow = @byrow! df_flow begin
+            @newcol From::Array{String}
+            @newcol To::Array{String}
+            :From = :Arcs[1]
+            :To   = :Arcs[2]
+      end
+
+df_flow[!,:FromRegion] = map(x -> node2DemReg[x], df_flow[!,:From])
+df_flow[!,:ToRegion] = map(x -> node2DemReg[x], df_flow[!,:To])
+
+# Inter-state flow:
+df_interflow = @where(df_flow, :FromRegion .!== :ToRegion)
+
+# %% Plotting
+
+using Plots
+using StatsPlots
+import Plots.PlotMeasures: mm
+using ColorSchemes
+
+# %% Plotting
+
+# %%
+# using StatsPlots
+gr()
+# plotly()
+
+Hours = dtr.sets[:Hours]
+
+DemandReg = "SA1"
+
+# Load = dtr.parameters[:Load]
+Demand = @where(dfDict["load"],:DemandRegion .== DemandReg)
+
+df_plot = dfStates[DemandReg]
+
+Techs = [Symbol(i) for i in DataFrames.unique(copy(df_plot[!,:Techs]))]
+# Techs = [
+#       :CCGTg_Exi
+#       :OCGTg_Exi
+#       :RecipW_Exi
+#       :WindOn_Exi
+#       :Hydro_Exi
+    # :SteamSubBlack,
+    # :SteamSuperBlack,
+    # :SteamSubBrown,
+    # # :HydroGravity,
+    # # :SolarPVLargeScale,
+    # :WindOnshore,
+    # :CCGTurbine,
+    # :GasSteamTurbine
+     # ]
+NumTechs = length(Techs)
+# reTechs = reshape(Techs,NumTechs,1)
+# NumTechs = size(df_all)[2]
+
+df_unstack = unstack(df_plot,:Techs,:Level)
+
+gr(size=(3000,600))
+# plotly(size=(3000,600))
+
+L = 1:336
+# L = 5000:5336
+
+# plot!(p,margin=15mm)
+
+# @df df_all[L,:] groupedbar(HOURS[L], cols(1:NumTech),  #cols(NumTech:-1:1),
+@df df_unstack[L,Techs] groupedbar(Hours[L], cols(Techs),
+    xlabel="Time",
+    fillalpha=0.5,linealpha=0.1,
+    bar_position=:stack,
+    legend=:best,  # `:none`, `:best`, `:right`, `:left`, `:top`, `:bottom`, `:inside`, `:legend`, `:topright`, `:topleft`, `:bottomleft`, `:bottomright`
+    color_palette=:darkrainbow) # delta rainbow inferno darkrainbow colorwheel
+
+p = plot!(Hours[L], [Demand[L,:Load]],label="Demand",
+      line=4, linecolour=:steelblue,
+      xtickfont = font(10, "Courier"),
+      xlabel="Time (hr)",
+      ylabel="Generation (MW)",
+      margin=5mm
+      )
+
+df_regflow = @linq df_interflow |>
+              where(:FromRegion .== DemandReg) |>
+              by(:Hours, Level = sum(:Value))
+
+f = plot!(df_regflow[L,:Hours], [df_regflow[L,:Level]],label="Flow",
+      line=4, linecolour=:red,
+      xtickfont = font(10, "Courier"),
+      xlabel="Time (hr)",
+      ylabel="Generation (MW)",
+      margin=5mm
+      )
+
 # color_dict = Dict()
 # default_colour = ColorSchemes.leonardo
 # # ColorScheme([Colors.RGB(0.0, 0.0, 0.0), Colors.RGB(1.0, 1.0, 1.0)],
