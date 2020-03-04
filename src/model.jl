@@ -44,7 +44,7 @@ function build_model!(dtr::DieterModel,
     min_res_dict = Dict{String,Float64}()
     if isa(dtr.settings[:min_res],Number)
         for n in DemandRegions
-            min_res_dict[n] = dtr.settings[:min_res_dict]
+            min_res_dict[n] = dtr.settings[:min_res]
         end
     elseif isa(dtr.settings[:min_res],Dict)
         min_res_dict = dtr.settings[:min_res]
@@ -127,6 +127,12 @@ function build_model!(dtr::DieterModel,
 
     MinStableGen = dtr.parameters[:MinStableGen] # Units: [0,1]; Minimum stable operational level for generation as fraction of Capacity in MW.
 
+    # WindLimit = dtr.parameters[:WindLimit]
+    # SolarLimit = dtr.parameters[:SolarLimit]
+    TotalBuildCap = dtr.parameters[:TotalBuildCap]
+    TransExpansionCost = filter(x -> !ismissing(x[2]), dtr.parameters[:TransExpansionCost])
+    ConnectCost = dtr.parameters[:ConnectCost]
+
     Load = dtr.parameters[:Load] # Units: MWh per time-interval; wholesale energy demand within a time-interval (e.g. hourly or 1/2-hourly)
 
     CurtailmentCost = dtr.settings[:cu_cost] # Units: currency/MWh; Cost per unit of generated energy that is curtailed
@@ -148,7 +154,7 @@ function build_model!(dtr::DieterModel,
         G[Nodes_Techs, Hours], (base_name="Generation_level", lower_bound=0) # Units: MWh per time-interval; Generation level - all generation tech.
         G_UP[Nodes_Dispatch, Hours] , (base_name="Generation_upshift", lower_bound=0)  # Units: MWh per time-interval; Generation level change up
         G_DO[Nodes_Dispatch, Hours], (base_name="Generation_downshift", lower_bound=0) # Units: MWh per time-interval; Generation level change down
-        G_INF[Nodes, Hours], (base_name="Generation_infeasible", lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Energy Balance
+        # G_INF[Nodes, Hours], (base_name="Generation_infeasible", lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Energy Balance
         G_REZ[REZones,Hours], (base_name="Generation_renewable_zones", lower_bound=0) # Units: MWh per time-interval; Generation level - renewable energy zone tech. & stor.
         G_TxZ[TxZones,Hours], (base_name="Generation_transmission_zones", lower_bound=0) # Units: MWh per time-interval; Generation level - transmission zone tech. & stor.
         # G_RES[Nodes_Renew, h in HOURS], (base_name="Generation_renewable", lower_bound=0) # Units: MWh; Generation level - renewable gen. tech.
@@ -157,6 +163,7 @@ function build_model!(dtr::DieterModel,
         STO_OUT[Nodes_Storages, Hours], (base_name="Storage_outflow", lower_bound=0) # Units: MWh per time-interval; Storage energy outflow
         STO_L[Nodes_Storages, Hours], (base_name="Storage_level", lower_bound=0) # Units: MWh at a given time-interval; Storage energy level
         N_TECH[Nodes_Techs], (base_name="Technology_capacity", lower_bound=0) # Units: MW; Technology capacity built
+        N_RES_EXP[REZones], (base_name="Renewable_capacity_expand", lower_bound=0) # Units: MW; Renewable technology transmission capacity built
         # N_RES[Nodes_Renew], (base_name="Renewable_capacity", lower_bound=0) # Units: MW; Renewable technology capacity built
         N_STO_E[Nodes_Storages], (base_name="Storage_build_energy", lower_bound=0) # Units: MWh; Storage energy technology built
         N_STO_P[Nodes_Storages], (base_name="Storage_capacity", lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
@@ -194,7 +201,7 @@ function build_model!(dtr::DieterModel,
 
             # + sum(CurtailmentCost * CU[(n,t),h] for (n,t) in Nodes_NonDispatch, h in Hours)
 
-            + sum(infeas_cost * G_INF[n,h] for n in Nodes, h in Hours)
+            # + sum(infeas_cost * G_INF[n,h] for n in Nodes, h in Hours)
 
             + sum(MarginalCost[n,sto] * (STO_OUT[(n,sto),h] + STO_IN[(n,sto),h])
                 for (n,sto) in Nodes_Storages, h in Hours)
@@ -215,6 +222,8 @@ function build_model!(dtr::DieterModel,
 
             + sum(FixedCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(FixedCost[n,sto] * 0.5*(N_STO_P[(n,sto)] + N_STO_E[(n,sto)]) for (n,sto) in Nodes_Storages)
+
+            + sum(TransExpansionCost[rez] * N_RES_EXP[rez] for rez in keys(TransExpansionCost) )
 
             + sum(InvestmentCost[p2g] * N_P2G[p2g] for p2g in P2G)
             + sum(InvestmentCost[g2p] * N_G2P[g2p] for g2p in G2P)
@@ -338,6 +347,13 @@ function build_model!(dtr::DieterModel,
         );
     end
 
+    # Renewable energy zone build limits.
+    @info "Renewable energy zone build limits."
+    @constraint(m, REZBuildLimits[rez in REZones],
+        sum(N_TECH[(z,t)] for (z,t) in Nodes_Techs if (z == rez && !occursin(r"Hydro_",t))) ## TODO: remove this hard-coding! 
+            <= TotalBuildCap[rez] + N_RES_EXP[rez]
+    );
+
     next!(prog)
 
 # %% * ----------------------------------------------------------------------- *
@@ -348,12 +364,12 @@ function build_model!(dtr::DieterModel,
 
     if !(isempty(keys(MinStableGen)))
         @info "Minimum stable generation levels"
-        # @constraint(m, MinStableGeneration[(n,t)=Nodes_Techs; !(MinStableGen[n,t] |> ismissing)],
-        #     sum(G[(n,t),h] for h in Hours) >= MinStableGen[n,t]*length(Hours)
-        #     or
         @constraint(m, MinStableGeneration[(n,t)=keys(MinStableGen), h=Hours; !(MinStableGen[n,t] |> ismissing)],
             G[(n,t),h] >= MinStableGen[n,t]*time_ratio*N_TECH[(n,t)]
         );
+        ## Average generation version:
+        # @constraint(m, MinStableGeneration[(n,t)=Nodes_Techs; !(MinStableGen[n,t] |> ismissing)],
+            # sum(G[(n,t),h] for h in Hours) >= MinStableGen[n,t]*length(Hours) )
     end
 #=
     if !(isDictAllMissing(MaxRampRate))
@@ -620,7 +636,7 @@ function generate_results!(dtr::DieterModel)
         :G => [:Nodes_Techs, :Hours],
         :G_UP => [:Nodes_Dispatch, :Hours],
         :G_DO => [:Nodes_Dispatch, :Hours],
-        :G_INF => [:Nodes,:Hours],
+        # :G_INF => [:Nodes,:Hours],
         # :CU => [:Nodes_NonDispatch, :Hours],
         :STO_IN => [:Nodes_Storages, :Hours],
         :STO_OUT => [:Nodes_Storages, :Hours],
@@ -658,11 +674,11 @@ function generate_results!(dtr::DieterModel)
         convert_jump_container_to_df(model_dict[v[1]], dim_names=convert(Vector{Symbol},v[2])) for v in vars)
     # dtr.results = [convert_jump_container_to_df(value.(model_dict[v[1]]), dim_names=v[2]) for v in vars]
 
-    if abs(sum(dtr.results[:G_INF][!, :Value]))  > (1e-5) ||
-       ( !ismissing(dtr.settings[:ev]) &&
-       abs(sum(dtr.results[:EV_INF][!, :Value])) > (1e-5) )
-          @warn "Problem might be infeasable"
-    end
+    # if abs(sum(dtr.results[:G_INF][!, :Value]))  > (1e-5) ||
+    #    ( !ismissing(dtr.settings[:ev]) &&
+    #    abs(sum(dtr.results[:EV_INF][!, :Value])) > (1e-5) )
+    #       @warn "Problem might be infeasable"
+    # end
 
     return nothing
 end

@@ -133,9 +133,7 @@ select(:Nodes)
 hydpump_nodes = df_phn[!,:Nodes]
 # Filter out locations without existing pumped hydro, and "BattInvWind_New"
 dfDict["map_node_storages"] = @byrow! dfDict["map_node_storages"] begin
-      if (  :Technologies == "HydPump_New"  # && !(:Nodes in hydpump_nodes))
-         || :Technologies == "BattInvWind_New"
-         )
+      if ( ( :Technologies == "HydPump_New" && !(:Nodes in hydpump_nodes) )  || :Technologies == "BattInvWind_New")
             :IncludeFlag = 0
       end
 end
@@ -279,6 +277,13 @@ parse_availibility!(dtr,dfDict["avail"])
 # sqlquery_exi_cap = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM Existing_Cap"; stricttypes=false);
 # exi_cap = Dieter.SQLqueryToDict(sqlquery_exi_cap)
 
+# Set the overnight cost of existing capacity to 0:
+OvernightCostPower = dtr.parameters[:OvernightCostPower]
+for t in keys(OvernightCostPower)
+      if occursin(r"_Exi",t[2])
+            OvernightCostPower[t] = 0
+      end
+end
 
 # Assumption: there is a direct relationship between REZs and NonDispatchable techs.
 df_REZ_to_Techs = unique(dfDict["avail"][!,[:RenewRegionID,:TechTypeID]])
@@ -304,12 +309,20 @@ Dieter.parse_extensions!(dtr,dataname=sql_db_path)
 
 # %% Additional parameters
 
+# # Minimum stable generation levels:
 fileDict["min_stable_gen"] = joinpath(datapath,"base","min_stable_gen.sql")
 
 dfDict["min_stable_gen"] = parse_file(fileDict["min_stable_gen"]; dataname=dataname)
 
 params_msg = Dieter.map_idcol(dfDict["min_stable_gen"], [:Region, :Technologies], skip_cols=Symbol[])
 for (k,v) in params_msg Dieter.update_dict!(dtr.parameters, k, v) end
+
+# # REZ build parameters and bounds
+fileDict["rez_build"] = joinpath(datapath,"base","rez_build.sql")
+dfDict["rez_build"] = parse_file(fileDict["rez_build"]; dataname=dataname)
+
+params_rzb = Dieter.map_idcol(dfDict["rez_build"], [:Nodes], skip_cols=Symbol[])
+for (k,v) in params_rzb Dieter.update_dict!(dtr.parameters, k, v) end
 
 # %% Initialise model
 
@@ -342,10 +355,10 @@ NewCapDict = filter(x -> ismissing(x.second), dtr.parameters[:ExistingCapacity])
 
 for (n,t) in keys(ExistingCapDict)
       if (n,t) in dtr.sets[:Nodes_Techs]
-            JuMP.set_lower_bound(N_TECH[(n,t)], ExistingCapDict[(n,t)]) # ; force=true)
+            JuMP.fix(N_TECH[(n,t)], ExistingCapDict[(n,t)]; force=true)
       end
       if (n,t) in dtr.sets[:Nodes_Storages]
-            JuMP.set_lower_bound(N_STO_P[(n,t)], ExistingCapDict[(n,t)]) # ; force=true)
+            JuMP.fix(N_STO_P[(n,t)], ExistingCapDict[(n,t)] ; force=true)
             JuMP.fix(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*ExistingCapDict[(n,t)]; force=true)
       end
 end
@@ -454,8 +467,8 @@ gr()
 
 Hours = dtr.sets[:Hours]
 
-DemandReg = "SA1"
-
+DemandReg = "TAS1"
+# for DemandReg in
 # Load = dtr.parameters[:Load]
 Demand = @where(dfDict["load"],:DemandRegion .== DemandReg)
 

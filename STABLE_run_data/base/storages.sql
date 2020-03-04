@@ -21,7 +21,6 @@ Tech_All_Parameters.MaxCapacity,
 Tech_All_Parameters.MaxEnergy,
 Tech_All_Parameters.StartLevel,
 Tech_All_Parameters.MaxEnergyToPowerRatio,
-Tech_All_Parameters.TechTypeCategory,
 -- Tech_All_Parameters.IsRenewable AS Renewable,
 Tech_All_Parameters.IsDispatchable AS Dispatchable
 FROM
