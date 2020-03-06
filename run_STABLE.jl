@@ -51,7 +51,7 @@ scen_settings[:coal_adjust] = 0.5;
 projectpath = pwd()
 # datapath = joinpath(projectpath,"testdata/")
 datapath = joinpath(projectpath,"STABLE_run_data")
-rdir = joinpath(projectpath,"results_stable")
+resultsdir = joinpath(ENV["HOME"],"Documents/Projects/ESM/results_stable")
 
 trace_read_path = joinpath(datapath,"STABLE_input_traces")
 wind_traces_path = joinpath(trace_read_path,"REZ_Wind_Traces_RefYear$(Reference_Year)_FYE$(Trace_Year).csv")
@@ -438,12 +438,21 @@ generate_results!(dtr)
 # # include("analysis.jl")
 # df_summ = summarize_result(dtr,del_zeros=false)
 #
-# # %% Save results to file
+
+# %% Save results to file
 # # include("save.jl")
 #
 # # rdir = joinpath(projectpath,resultspath)
-# save_results(dtr, rdir)
+
+# save_results(dtr, resultsdir)
 #
+
+# using Serialization
+
+# solved_dtr = copy(dtr)
+# solved_dtr.model = []
+# Serialization.serialize(joinpath(resultsdir,"dtr_saved.jl"), solved_dtr)
+
 # %% Merge results with other runs
 # # include("merge.jl")
 # post_process_results(rdir)
@@ -499,20 +508,21 @@ using ColorSchemes
 
 # %% Plotting
 
-# %%
-# using StatsPlots
-# gr()
-gr(size=(3000,600))
-# plotly()
-# plotly(size=(3000,600))
-
 Hours = dtr.sets[:Hours]
 L = 1:336
 # L = 5000:5336
 
+gr()
+gr(size=(5000,2000))
+# gr(size=(3000,600))
+# plotly()
+# plotly(size=(3000,600))
+
 # DemandReg = "TAS1"
-for DemandReg in ["NSW1", "QLD1", "VIC1", "SA1", "TAS1"]
-      # Load = dtr.parameters[:Load]
+p = plot(layout=grid(5,1, height=4*[0.1,0.1,0.1,0.1,0.1]),margin=5mm);
+
+for (count, DemandReg) in enumerate(["NSW1", "QLD1", "VIC1", "SA1", "TAS1"])
+            # Load = dtr.parameters[:Load]
       Demand = @where(dfDict["load"],:DemandRegion .== DemandReg)
       df_plot = dfStates[DemandReg]
       Techs = [Symbol(i) for i in DataFrames.unique(copy(df_plot[!,:Techs]))]
@@ -522,20 +532,22 @@ for DemandReg in ["NSW1", "QLD1", "VIC1", "SA1", "TAS1"]
       df_unstack = unstack(df_plot,:Techs,:Level)
 
       # @df df_all[L,:] groupedbar(HOURS[L], cols(1:NumTech),  #cols(NumTech:-1:1),
-      @df df_unstack[L,Techs] groupedbar(Hours[L], cols(Techs),
+      @df df_unstack[L,Techs] groupedbar!(p, Hours[L], cols(Techs),
+          subplot=count,
+          margin=10mm,
           title=DemandReg,
           xlabel="Time",
           fillalpha=0.5,linealpha=0.1,
           bar_position=:stack,
-          legend=:best,  # `:none`, `:best`, `:right`, `:left`, `:top`, `:bottom`, `:inside`, `:legend`, `:topright`, `:topleft`, `:bottomleft`, `:bottomright`
-          color_palette=:darkrainbow) # delta rainbow inferno darkrainbow colorwheel
+          legend=:none,  # `:none`, `:best`, `:right`, `:left`, `:top`, `:bottom`, `:inside`, `:legend`, `:topright`, `:topleft`, `:bottomleft`, `:bottomright`
+          color_palette=:colorwheel) # delta rainbow inferno darkrainbow colorwheel
 
-      p = plot!(Hours[L], [Demand[L,:Load]],label="Demand",
+      plot!(Hours[L], [Demand[L,:Load]],label="Demand",
+            subplot=count,
             line=4, linecolour=:steelblue,
             xtickfont = font(10, "Courier"),
             xlabel="Time (hr)",
             ylabel="Generation (MW)",
-            margin=5mm
             )
       # plot!(p,margin=15mm)
 
@@ -543,14 +555,17 @@ for DemandReg in ["NSW1", "QLD1", "VIC1", "SA1", "TAS1"]
                     where(:FromRegion .== DemandReg) |>
                     by(:Hours, Level = sum(:Value))
 
-      f = plot!(df_regflow[L,:Hours], [df_regflow[L,:Level]],label="Flow",
+      plot!(df_regflow[L,:Hours], [df_regflow[L,:Level]],label="Flow",
+            subplot=count,
             line=4, linecolour=:red,
             xtickfont = font(10, "Courier"),
             xlabel="Time (hr)",
             ylabel="Generation (MW)",
             margin=5mm
             )
+      # display(q)
 end
+display(p)
 
 # %% Misc.
 # color_dict = Dict()

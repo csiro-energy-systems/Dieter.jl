@@ -1,4 +1,7 @@
 
+using Feather
+using Arrow  # TODO: review whether Arrow needs to be a dependency
+# using Missings
 
 function create_folder(p::AbstractString)
     if isdir(p)

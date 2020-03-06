@@ -9,18 +9,18 @@ using SQLite
 # using Tables
 # @reexport using DataFrames, CSV
 
-using Feather
-using Arrow  # TODO: review whether Arrow needs to be a dependency
-# using Missings
+# using Feather
+# using Arrow  # review whether Arrow needs to be a dependency
+# # using Missings
 
 using JuMP
 import MathOptInterface
 # const MOI = MathOptInterface
 # @reexport using JuMP
 using ProgressMeter
-using Plots
+# using Plots
 # @reexport using Plots
-using ColorSchemes
+# using ColorSchemes
 # @reexport using ColorSchemes
 
 # %% Fundamental structures
@@ -45,13 +45,13 @@ include("model.jl")
 include("analysis.jl")
 
 # %%
-include("save.jl")
+# include("save.jl")
 
 # %%
-include("merge.jl")
+# include("merge.jl")
 
 # %
-include("summary_plot.jl")
+# include("summary_plot.jl")
 
 # %%
 export DieterModel,
@@ -62,17 +62,18 @@ check_files_exist,
 parse_data_to_model!,
 build_model!,
 solve_model!,
-generate_results!,
-summarize_result,
-save_results,
-post_process_results,
-plot_generation_investments,
-plot_storage_investments,
-plot_curtailment,
-plot_all,
-get_result,
-c_gradient,
-create_filter_dict
+generate_results!
+
+# summarize_result,
+# save_results,
+# post_process_results,
+# plot_generation_investments,
+# plot_storage_investments,
+# plot_curtailment,
+# plot_all,
+# get_result,
+# c_gradient,
+# create_filter_dict
 
 # The following code is taken from PowerModels.jl:
 # the follow items are also exported for user-friendliness when calling
