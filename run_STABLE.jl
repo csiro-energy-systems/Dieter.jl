@@ -19,10 +19,31 @@ import CSV
 using TimeSeries
 # import XLSX
 
-# %% Year parameters
+# %% Misc. utility functions
+dvalmatch(d::Dict,s::Regex) = filter(x -> !ismissing(x.second) && occursin(s,x.second),d)
+dkeymatch(d::Dict,s::Regex) = filter(x -> !ismissing(x.second) && occursin(s,x.first),d)
+dkeymatch(d::Dict{Tuple{Any,Any},Any},s::Regex,pos::Int) =
+            filter(x -> !ismissing(x.second) && occursin(s,x.first[pos]),d)
+
+
+# %% Scenario Settings (to customise by modeller)
+
+# Year parameters
 Demand_Year = 2019 # Financial year 2018-2019
 Reference_Year = Demand_Year # 2019  # Year of data set to use for renewable traces
 Trace_Year = 2030 # Which year to use from the Reference_Year trace dataset
+
+# Technology
+scen_settings =Dict{Symbol,Any}()
+
+scen_settings[:interest] = 0.06
+# Modify the :min_res setting over [0,100] and rerun to see comparison.
+scen_settings[:min_res] = 10
+scen_settings[:ev] = missing
+scen_settings[:heat] = missing
+scen_settings[:h2] = missing
+
+scen_settings[:coal_adjust] = 0.5;
 
 # %% Data paths and connections
 
@@ -33,8 +54,8 @@ datapath = joinpath(projectpath,"STABLE_run_data")
 rdir = joinpath(projectpath,"results_stable")
 
 trace_read_path = joinpath(datapath,"STABLE_input_traces")
-wind_traces_path = joinpath(trace_read_path,"REZ_Wind_Traces_RefYear2019_FYE2030.csv")
-solar_traces_path = joinpath(trace_read_path,"REZ_Solar_Traces_RefYear2019_FYE2030.csv")
+wind_traces_path = joinpath(trace_read_path,"REZ_Wind_Traces_RefYear$(Reference_Year)_FYE$(Trace_Year).csv")
+solar_traces_path = joinpath(trace_read_path,"REZ_Solar_Traces_RefYear$(Reference_Year)_FYE$(Trace_Year).csv")
 
 # %% Instantiate data model
 # Dieter.initialise_data_dir_structure(datapath)
@@ -45,12 +66,14 @@ dtr.settings[:datapath] = datapath
 # data_instance["files"] = Dict{String,String}()
 # fileDict = dtr.data["files"]
 
-dtr.settings[:interest] = 0.06
+dtr.settings[:interest] = scen_settings[:interest]
 # Modify the :min_res setting over [0,100] and rerun to see comparison.
-dtr.settings[:min_res] = 10
-dtr.settings[:ev] = missing
-dtr.settings[:heat] = missing
-dtr.settings[:h2] = missing
+dtr.settings[:min_res] = scen_settings[:min_res]
+dtr.settings[:ev] = scen_settings[:ev]
+dtr.settings[:heat] = scen_settings[:heat]
+dtr.settings[:h2] = scen_settings[:h2]
+
+dtr.settings[:coal_adjust] = scen_settings[:coal_adjust]
 
 initialise_data_file_dict!(dtr,"sql")
 # dtr.data["files"]
@@ -110,6 +133,7 @@ dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
 
 # %% Modify included technologies
 
+#=
 # If the technology is not existing, do not include it.
 dfDict["map_node_tech"] =
 @byrow! dfDict["map_node_tech"] begin
@@ -117,14 +141,16 @@ dfDict["map_node_tech"] =
             :IncludeFlag = 0
       end
 end
+=#
 # @linq dfDict["map_node_tech"] |> where(:IncludeFlag .== 1)
-
+#=
 @byrow! dfDict["map_node_storages"] begin
       if !occursin(r"_Exi",:Technologies)
             :IncludeFlag = 0
       end
 end
-
+=#
+#=
 # Get the nodes for existing pumped hydro "HydPump_Exi":
 df_phn = @linq dfDict["map_node_storages"] |>
 where(:Technologies .== "HydPump_Exi") |>
@@ -137,7 +163,7 @@ dfDict["map_node_storages"] = @byrow! dfDict["map_node_storages"] begin
             :IncludeFlag = 0
       end
 end
-
+=#
 
 
 # %% Create relational sets
@@ -336,6 +362,9 @@ build_model!(dtr,solver)
 
 # %% Fix necessary variables
 
+sets = dtr.sets
+par = dtr.parameters
+
 N_TECH = dtr.model.obj_dict[:N_TECH]
 N_STO_P = dtr.model.obj_dict[:N_STO_P]
 N_STO_E = dtr.model.obj_dict[:N_STO_E]
@@ -344,6 +373,9 @@ STO_IN = dtr.model.obj_dict[:STO_IN]
 MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio]
 ExistingCapDict = filter(x -> !ismissing(x.second), dtr.parameters[:ExistingCapacity])
 NewCapDict = filter(x -> ismissing(x.second), dtr.parameters[:ExistingCapacity])
+
+Coal_ExistingCapDict = Dict([x for x in par[:ExistingCapacity]
+      if x.first in keys(dvalmatch(par[:FuelType],r"Coal")) && par[:Status][x.first] == "GenericExisting"])
 # ExistingStoDict = filter(
 #                      x -> (!ismissing(x.second) && (x.first in dtr.sets[:Nodes_Techs])),
 #                      dtr.parameters[:ExistingCapacity]
@@ -360,6 +392,12 @@ for (n,t) in keys(ExistingCapDict)
       if (n,t) in dtr.sets[:Nodes_Storages]
             JuMP.fix(N_STO_P[(n,t)], ExistingCapDict[(n,t)] ; force=true)
             JuMP.fix(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*ExistingCapDict[(n,t)]; force=true)
+      end
+end
+
+for (n,t) in keys(Coal_ExistingCapDict)
+      if (n,t) in dtr.sets[:Nodes_Techs]
+            JuMP.fix(N_TECH[(n,t)], dtr.settings[:coal_adjust]*ExistingCapDict[(n,t)]; force=true)
       end
 end
 #
@@ -413,6 +451,7 @@ generate_results!(dtr)
 # %% Filtering results
 
 res = dtr.results
+
 df = res[:G]
 df_aug = @byrow! df begin
               @newcol Nodes::Array{String}
@@ -462,76 +501,58 @@ using ColorSchemes
 
 # %%
 # using StatsPlots
-gr()
-# plotly()
-
-Hours = dtr.sets[:Hours]
-
-DemandReg = "TAS1"
-# for DemandReg in
-# Load = dtr.parameters[:Load]
-Demand = @where(dfDict["load"],:DemandRegion .== DemandReg)
-
-df_plot = dfStates[DemandReg]
-
-Techs = [Symbol(i) for i in DataFrames.unique(copy(df_plot[!,:Techs]))]
-# Techs = [
-#       :CCGTg_Exi
-#       :OCGTg_Exi
-#       :RecipW_Exi
-#       :WindOn_Exi
-#       :Hydro_Exi
-    # :SteamSubBlack,
-    # :SteamSuperBlack,
-    # :SteamSubBrown,
-    # # :HydroGravity,
-    # # :SolarPVLargeScale,
-    # :WindOnshore,
-    # :CCGTurbine,
-    # :GasSteamTurbine
-     # ]
-NumTechs = length(Techs)
-# reTechs = reshape(Techs,NumTechs,1)
-# NumTechs = size(df_all)[2]
-
-df_unstack = unstack(df_plot,:Techs,:Level)
-
+# gr()
 gr(size=(3000,600))
+# plotly()
 # plotly(size=(3000,600))
 
+Hours = dtr.sets[:Hours]
 L = 1:336
 # L = 5000:5336
 
-# plot!(p,margin=15mm)
+# DemandReg = "TAS1"
+for DemandReg in ["NSW1", "QLD1", "VIC1", "SA1", "TAS1"]
+      # Load = dtr.parameters[:Load]
+      Demand = @where(dfDict["load"],:DemandRegion .== DemandReg)
+      df_plot = dfStates[DemandReg]
+      Techs = [Symbol(i) for i in DataFrames.unique(copy(df_plot[!,:Techs]))]
+      NumTechs = length(Techs)
+      # reTechs = reshape(Techs,NumTechs,1)
 
-# @df df_all[L,:] groupedbar(HOURS[L], cols(1:NumTech),  #cols(NumTech:-1:1),
-@df df_unstack[L,Techs] groupedbar(Hours[L], cols(Techs),
-    xlabel="Time",
-    fillalpha=0.5,linealpha=0.1,
-    bar_position=:stack,
-    legend=:best,  # `:none`, `:best`, `:right`, `:left`, `:top`, `:bottom`, `:inside`, `:legend`, `:topright`, `:topleft`, `:bottomleft`, `:bottomright`
-    color_palette=:darkrainbow) # delta rainbow inferno darkrainbow colorwheel
+      df_unstack = unstack(df_plot,:Techs,:Level)
 
-p = plot!(Hours[L], [Demand[L,:Load]],label="Demand",
-      line=4, linecolour=:steelblue,
-      xtickfont = font(10, "Courier"),
-      xlabel="Time (hr)",
-      ylabel="Generation (MW)",
-      margin=5mm
-      )
+      # @df df_all[L,:] groupedbar(HOURS[L], cols(1:NumTech),  #cols(NumTech:-1:1),
+      @df df_unstack[L,Techs] groupedbar(Hours[L], cols(Techs),
+          title=DemandReg,
+          xlabel="Time",
+          fillalpha=0.5,linealpha=0.1,
+          bar_position=:stack,
+          legend=:best,  # `:none`, `:best`, `:right`, `:left`, `:top`, `:bottom`, `:inside`, `:legend`, `:topright`, `:topleft`, `:bottomleft`, `:bottomright`
+          color_palette=:darkrainbow) # delta rainbow inferno darkrainbow colorwheel
 
-df_regflow = @linq df_interflow |>
-              where(:FromRegion .== DemandReg) |>
-              by(:Hours, Level = sum(:Value))
+      p = plot!(Hours[L], [Demand[L,:Load]],label="Demand",
+            line=4, linecolour=:steelblue,
+            xtickfont = font(10, "Courier"),
+            xlabel="Time (hr)",
+            ylabel="Generation (MW)",
+            margin=5mm
+            )
+      # plot!(p,margin=15mm)
 
-f = plot!(df_regflow[L,:Hours], [df_regflow[L,:Level]],label="Flow",
-      line=4, linecolour=:red,
-      xtickfont = font(10, "Courier"),
-      xlabel="Time (hr)",
-      ylabel="Generation (MW)",
-      margin=5mm
-      )
+      df_regflow = @linq df_interflow |>
+                    where(:FromRegion .== DemandReg) |>
+                    by(:Hours, Level = sum(:Value))
 
+      f = plot!(df_regflow[L,:Hours], [df_regflow[L,:Level]],label="Flow",
+            line=4, linecolour=:red,
+            xtickfont = font(10, "Courier"),
+            xlabel="Time (hr)",
+            ylabel="Generation (MW)",
+            margin=5mm
+            )
+end
+
+# %% Misc.
 # color_dict = Dict()
 # default_colour = ColorSchemes.leonardo
 # # ColorScheme([Colors.RGB(0.0, 0.0, 0.0), Colors.RGB(1.0, 1.0, 1.0)],
