@@ -130,6 +130,7 @@ function build_model!(dtr::DieterModel,
     # WindLimit = dtr.parameters[:WindLimit]
     # SolarLimit = dtr.parameters[:SolarLimit]
     TotalBuildCap = dtr.parameters[:TotalBuildCap]
+    ExpansionLimit = dtr.parameters[:ExpansionLimit]
     TransExpansionCost = filter(x -> !ismissing(x[2]), dtr.parameters[:TransExpansionCost])
     ConnectCost = dtr.parameters[:ConnectCost]
 
@@ -148,42 +149,65 @@ function build_model!(dtr::DieterModel,
 
     m = Model(solver)
 
+    shorter =  Dict("Total_cost_objective" => "Z",
+                    "Generation_level" => "G",
+                    "Generation_upshift" => "G_UP",
+                    "Generation_downshift" => "G_DO",
+                    "Generation_renewable_zones" => "G_REZ",
+                    "Generation_transmission_zones" => "G_TxZ",
+                    "Storage_inflow" => "STO_IN",
+                    "Storage_outflow" => "STO_OUT",
+                    "Storage_level" => "STO_L",
+                    "Technology_capacity" => "N_TECH",
+                    "Renewable_capacity_expand" => "N_RES_EXP",
+                    "Storage_build_energy" => "N_STO_E",
+                    "Storage_capacity" => "N_STO_P",
+                    "Internodal_flow" => "FLOW",
+                    "EV_charging" => "EV_CHARGE",
+                    "EV_discharging" => "EV_DISCHARGE",
+                    "EV_charge_level" => "EV_L",
+                    "EV_PHEV_fuel_use" => "EV_PHEVFUEL",
+                    "EV_infeasible" => "EV_INF", 
+                    "Heat_storage_level" => "HEAT_STO_L",
+                    "Heat_heat_pump_" => "HEAT_HP_IN",
+                    "Heat_infeasible" => "HEAT_INF")
+
     @info "Variable definitions."
     @variables(m, begin
-        Z, (base_name="Total_cost_objective", lower_bound=0)
-        G[Nodes_Techs, Hours], (base_name="Generation_level", lower_bound=0) # Units: MWh per time-interval; Generation level - all generation tech.
-        G_UP[Nodes_Dispatch, Hours] , (base_name="Generation_upshift", lower_bound=0)  # Units: MWh per time-interval; Generation level change up
-        G_DO[Nodes_Dispatch, Hours], (base_name="Generation_downshift", lower_bound=0) # Units: MWh per time-interval; Generation level change down
-        # G_INF[Nodes, Hours], (base_name="Generation_infeasible", lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Energy Balance
-        G_REZ[REZones,Hours], (base_name="Generation_renewable_zones", lower_bound=0) # Units: MWh per time-interval; Generation level - renewable energy zone tech. & stor.
-        G_TxZ[TxZones,Hours], (base_name="Generation_transmission_zones", lower_bound=0) # Units: MWh per time-interval; Generation level - transmission zone tech. & stor.
-        # G_RES[Nodes_Renew, h in HOURS], (base_name="Generation_renewable", lower_bound=0) # Units: MWh; Generation level - renewable gen. tech.
-        # CU[Nodes_NonDispatch, Hours], (base_name="Curtailment_renewables", lower_bound=0) # Units: MWh per time-interval; Non-dispatchable curtailment
-        STO_IN[Nodes_Storages, Hours], (base_name="Storage_inflow", lower_bound=0) # Units: MWh per time-interval; Storage energy inflow
-        STO_OUT[Nodes_Storages, Hours], (base_name="Storage_outflow", lower_bound=0) # Units: MWh per time-interval; Storage energy outflow
-        STO_L[Nodes_Storages, Hours], (base_name="Storage_level", lower_bound=0) # Units: MWh at a given time-interval; Storage energy level
-        N_TECH[Nodes_Techs], (base_name="Technology_capacity", lower_bound=0) # Units: MW; Technology capacity built
-        N_RES_EXP[REZones], (base_name="Renewable_capacity_expand", lower_bound=0) # Units: MW; Renewable technology transmission capacity built
-        # N_RES[Nodes_Renew], (base_name="Renewable_capacity", lower_bound=0) # Units: MW; Renewable technology capacity built
-        N_STO_E[Nodes_Storages], (base_name="Storage_build_energy", lower_bound=0) # Units: MWh; Storage energy technology built
-        N_STO_P[Nodes_Storages], (base_name="Storage_capacity", lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
-        FLOW[Arcs,Hours], (base_name="Internodal_flow") # Units: MWh; Power flow between nodes in topology
-        EV_CHARGE[EV, Hours], (base_name="EV_charging", lower_bound=0) # Units: MWh per time-interval; Electric vehicle charge for vehicle profile in set EV
-        EV_DISCHARGE[EV, Hours], (base_name="EV_discharging", lower_bound=0) # Units: MWh per time-interval; Electric vehicle dischargw for vehicle profile in set EV
-        EV_L[EV, Hours], (base_name="EV_charge_level", lower_bound=0) # Units: MWh at a given time-interval; Electric vehicle charging level for vehicle profile in set EV
-        EV_PHEVFUEL[EV, Hours], (base_name="EV_PHEV_fuel_use", lower_bound=0) #  Plug-in hybrid electric vehicle conventional fuel use
-        EV_INF[EV, Hours], (base_name="EV_infeasible", lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Electric vehicle energy balance
-        H2_P2G[P2G, Hours], (base_name="H2_power_to_gas", lower_bound=0) # Units: MWh per time-interval; Power-to-gas energy conversion
-        H2_G2P[G2P, Hours], (base_name="H2_gas_to_power", lower_bound=0) # Units: MWh per time-interval; Gas-to-power energy conversion
-        H2_GS_L[GasStorages, Hours], (base_name="H2_storage_level", lower_bound=0) # Units: MWh at a given time-interval; Current gas storage level
-        H2_GS_IN[GasStorages, Hours], (base_name="H2_storage_inflow", lower_bound=0)
-        H2_GS_OUT[GasStorages, Hours], (base_name="H2_storage_outflow", lower_bound=0)
-        N_P2G[P2G], (base_name="H2_P2G_capacity", lower_bound=0) # Units: MW; Power-to-gas capacity
-        N_G2P[G2P], (base_name="H2_G2P_capacity", lower_bound=0) # Units: MW; Gas-to-power capacity
-        N_GS[GasStorages], (base_name="H2_storage_capacity", lower_bound=0) # Units; MWh (??) ; Gas storage (energy) capacity
-        HEAT_STO_L[BU,HP,Hours], (base_name="Heat_storage_level", lower_bound=0) # Units: MWh at a given time-interval; Heating: storage level
-        HEAT_HP_IN[BU,HP, Hours], (base_name="Heat_heat_pump_", lower_bound=0)   # Units: MWh per time-interval; Heating: electricity demand from heat pump
-        HEAT_INF[BU,HP, Hours], (base_name="Heat_infeasible", lower_bound=0)  # Units: MWh per time-interval; Heating: Infeasibility term for Electric vehicle energy balance
+            Z, (base_name=shorter["Total_cost_objective"], lower_bound=0)
+            G[Nodes_Techs, Hours], (base_name=shorter["Generation_level"], lower_bound=0) # Units: MWh per time-interval; Generation level - all generation tech.
+            G_UP[Nodes_Dispatch, Hours] , (base_name=shorter["Generation_upshift"], lower_bound=0)  # Units: MWh per time-interval; Generation level change up
+            G_DO[Nodes_Dispatch, Hours], (base_name=shorter["Generation_downshift"], lower_bound=0) # Units: MWh per time-interval; Generation level change down
+            # G_INF[Nodes, Hours], (base_name=shorter["Generation_infeasible"], lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Energy Balance
+            G_REZ[REZones,Hours], (base_name=shorter["Generation_renewable_zones"], lower_bound=0) # Units: MWh per time-interval; Generation level - renewable energy zone tech. & stor.
+            G_TxZ[TxZones,Hours], (base_name=shorter["Generation_transmission_zones"], lower_bound=0) # Units: MWh per time-interval; Generation level - transmission zone tech. & stor.
+            # G_RES[Nodes_Renew, h in HOURS], (base_name=shorter["Generation_renewable"], lower_bound=0) # Units: MWh; Generation level - renewable gen. tech.
+            # CU[Nodes_NonDispatch, Hours], (base_name=shorter["Curtailment_renewables"], lower_bound=0) # Units: MWh per time-interval; Non-dispatchable curtailment
+            STO_IN[Nodes_Storages, Hours], (base_name=shorter["Storage_inflow"], lower_bound=0) # Units: MWh per time-interval; Storage energy inflow
+            STO_OUT[Nodes_Storages, Hours], (base_name=shorter["Storage_outflow"], lower_bound=0) # Units: MWh per time-interval; Storage energy outflow
+            STO_L[Nodes_Storages, Hours], (base_name=shorter["Storage_level"], lower_bound=0) # Units: MWh at a given time-interval; Storage energy level
+            N_TECH[Nodes_Techs], (base_name=shorter["Technology_capacity"], lower_bound=0) # Units: MW; Technology capacity built
+            N_RES_EXP[REZones], (base_name=shorter["Renewable_capacity_expand"], lower_bound=0) # Units: MW; Renewable technology transmission capacity built
+            # N_RES[Nodes_Renew], (base_name=shorter["Renewable_capacity"], lower_bound=0) # Units: MW; Renewable technology capacity built
+            N_STO_E[Nodes_Storages], (base_name=shorter["Storage_build_energy"], lower_bound=0) # Units: MWh; Storage energy technology built
+            N_STO_P[Nodes_Storages], (base_name=shorter["Storage_capacity"], lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
+            FLOW[Arcs,Hours], (base_name=shorter["Internodal_flow"]) # Units: MWh; Power flow between nodes in topology
+            EV_CHARGE[EV, Hours], (base_name=shorter["EV_charging"], lower_bound=0) # Units: MWh per time-interval; Electric vehicle charge for vehicle profile in set EV
+            EV_DISCHARGE[EV, Hours], (base_name=shorter["EV_discharging"], lower_bound=0) # Units: MWh per time-interval; Electric vehicle dischargw for vehicle profile in set EV
+            EV_L[EV, Hours], (base_name=shorter["EV_charge_level"], lower_bound=0) # Units: MWh at a given time-interval; Electric vehicle charging level for vehicle profile in set EV
+            EV_PHEVFUEL[EV, Hours], (base_name=shorter["EV_PHEV_fuel_use"], lower_bound=0) #  Plug-in hybrid electric vehicle conventional fuel use
+            EV_INF[EV, Hours], (base_name=shorter["EV_infeasible"], lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Electric vehicle energy balance
+            H2_P2G[P2G, Hours], (base_name=shorter["H2_power_to_gas"], lower_bound=0) # Units: MWh per time-interval; Power-to-gas energy conversion
+            H2_G2P[G2P, Hours], (base_name=shorter["H2_gas_to_power"], lower_bound=0) # Units: MWh per time-interval; Gas-to-power energy conversion
+            H2_GS_L[GasStorages, Hours], (base_name=shorter["H2_storage_level"], lower_bound=0) # Units: MWh at a given time-interval; Current gas storage level
+            H2_GS_IN[GasStorages, Hours], (base_name=shorter["H2_storage_inflow"], lower_bound=0)
+            H2_GS_OUT[GasStorages, Hours], (base_name=shorter["H2_storage_outflow"], lower_bound=0)
+            N_P2G[P2G], (base_name=shorter["H2_P2G_capacity"], lower_bound=0) # Units: MW; Power-to-gas capacity
+            N_G2P[G2P], (base_name=shorter["H2_G2P_capacity"], lower_bound=0) # Units: MW; Gas-to-power capacity
+            N_GS[GasStorages], (base_name=shorter["H2_storage_capacity"], lower_bound=0) # Units; MWh (??) ; Gas storage (energy) capacity
+            HEAT_STO_L[BU,HP,Hours], (base_name=shorter["Heat_storage_level"], lower_bound=0) # Units: MWh at a given time-interval; Heating: storage level
+            HEAT_HP_IN[BU,HP, Hours], (base_name=shorter["Heat_heat_pump_"], lower_bound=0)   # Units: MWh per time-interval; Heating: electricity demand from heat pump
+            HEAT_INF[BU,HP, Hours], (base_name=shorter["Heat_infeasible"], lower_bound=0)  # Units: MWh per time-interval; Heating: Infeasibility term for Electric vehicle energy balance
     end)
 
 # %%   * --------------------------------------------------------------------- *
@@ -350,8 +374,13 @@ function build_model!(dtr::DieterModel,
     # Renewable energy zone build limits.
     @info "Renewable energy zone build limits."
     @constraint(m, REZBuildLimits[rez in REZones],
-        sum(N_TECH[(z,t)] for (z,t) in Nodes_Techs if (z == rez && !occursin(r"Hydro_",t))) ## TODO: remove this hard-coding! 
+        sum(N_TECH[(z,t)] for (z,t) in Nodes_Techs if (z == rez && !occursin(r"Hydro_",t))) ## TODO: remove this hard-coding!
             <= TotalBuildCap[rez] + N_RES_EXP[rez]
+    );
+
+    @info "Renewable energy zone expansion limits."
+    @constraint(m, REZExpansionBound[rez in REZones],
+        N_RES_EXP[rez] <= ExpansionLimit[rez]
     );
 
     next!(prog)

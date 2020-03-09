@@ -20,11 +20,11 @@ using TimeSeries
 # import XLSX
 
 # %% Misc. utility functions
+# Filter a Dictionary for a matching string in the value or key, resp.
 dvalmatch(d::Dict,s::Regex) = filter(x -> !ismissing(x.second) && occursin(s,x.second),d)
 dkeymatch(d::Dict,s::Regex) = filter(x -> !ismissing(x.second) && occursin(s,x.first),d)
-dkeymatch(d::Dict{Tuple{Any,Any},Any},s::Regex,pos::Int) =
-            filter(x -> !ismissing(x.second) && occursin(s,x.first[pos]),d)
-
+dkeymatch(d::Dict,s::Regex,pos::Int) = filter(x -> !ismissing(x.second) && occursin(s,x.first[pos]),d)
+# dkeymatch(d::Dict{Tuple{String,String},Float64},s::Regex,pos::Int) = dkeymatch(d,s,pos)
 
 # %% Scenario Settings (to customise by modeller)
 
@@ -43,15 +43,17 @@ scen_settings[:ev] = missing
 scen_settings[:heat] = missing
 scen_settings[:h2] = missing
 
+# Set the scaling of existing coal
 scen_settings[:coal_adjust] = 0.5;
-
+# Set the maximum allowed contribution to peak demand by a single technology
+scen_settings[:peak_factor] = 0.9
 # %% Data paths and connections
 
 # projectpath = joinpath(ENV["HOME"],"Documents/Projects/ESM/Dieter.jl/")
 projectpath = pwd()
 # datapath = joinpath(projectpath,"testdata/")
 datapath = joinpath(projectpath,"STABLE_run_data")
-resultsdir = joinpath(ENV["HOME"],"Documents/Projects/ESM/results_stable")
+# resultsdir = joinpath(ENV["HOME"],"Documents/Projects/ESM/results_stable")
 
 trace_read_path = joinpath(datapath,"STABLE_input_traces")
 wind_traces_path = joinpath(trace_read_path,"REZ_Wind_Traces_RefYear$(Reference_Year)_FYE$(Trace_Year).csv")
@@ -74,6 +76,7 @@ dtr.settings[:heat] = scen_settings[:heat]
 dtr.settings[:h2] = scen_settings[:h2]
 
 dtr.settings[:coal_adjust] = scen_settings[:coal_adjust]
+dtr.settings[:peak_factor] = scen_settings[:peak_factor]
 
 initialise_data_file_dict!(dtr,"sql")
 # dtr.data["files"]
@@ -216,6 +219,15 @@ dfDict["load"] = @linq df_OpDem_stack |>
 
 # %%
 parse_load!(dtr, dfDict["load"])
+
+# %% Calculate peak demand
+DemandRegions = dtr.sets[:DemandRegions]
+Peaks = Dict{String,Float64}()
+for dr in DemandRegions
+      Peaks[dr] = maximum(values(dkeymatch(dtr.parameters[:Load],Regex(dr),1)))
+end
+
+dtr.parameters[:Peaks] = Peaks
 
 # %% Construct availability traces
 # Format of columns: TimeIndex, RenewRegionID, TechTypeID, Availability
@@ -360,7 +372,7 @@ solver = CPLEX.Optimizer
 # build_model!(dtr,solver; nthhour=-1)
 build_model!(dtr,solver)
 
-# %% Fix necessary variables
+# %% Fix necessary variables for this scenario:
 
 sets = dtr.sets
 par = dtr.parameters
@@ -371,20 +383,13 @@ N_STO_E = dtr.model.obj_dict[:N_STO_E]
 STO_IN = dtr.model.obj_dict[:STO_IN]
 
 MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio]
+
 ExistingCapDict = filter(x -> !ismissing(x.second), dtr.parameters[:ExistingCapacity])
-NewCapDict = filter(x -> ismissing(x.second), dtr.parameters[:ExistingCapacity])
 
 Coal_ExistingCapDict = Dict([x for x in par[:ExistingCapacity]
       if x.first in keys(dvalmatch(par[:FuelType],r"Coal")) && par[:Status][x.first] == "GenericExisting"])
-# ExistingStoDict = filter(
-#                      x -> (!ismissing(x.second) && (x.first in dtr.sets[:Nodes_Techs])),
-#                      dtr.parameters[:ExistingCapacity]
-#                    )
-# ExistingStoDict = filter(
-#                      x -> (!ismissing(x.second) && (x.first in dtr.sets[:Nodes_Storages])),
-#                      dtr.parameters[:ExistingCapacity]
-#                    )
 
+# # Fix the capacity of existing generation and storage technologies
 for (n,t) in keys(ExistingCapDict)
       if (n,t) in dtr.sets[:Nodes_Techs]
             JuMP.fix(N_TECH[(n,t)], ExistingCapDict[(n,t)]; force=true)
@@ -395,12 +400,54 @@ for (n,t) in keys(ExistingCapDict)
       end
 end
 
+# # (Re)Fix the capacity of existing coal generation at a certain fraction `coal_adjust`
 for (n,t) in keys(Coal_ExistingCapDict)
       if (n,t) in dtr.sets[:Nodes_Techs]
             JuMP.fix(N_TECH[(n,t)], dtr.settings[:coal_adjust]*ExistingCapDict[(n,t)]; force=true)
       end
 end
-#
+
+# No storage inflow in first period
+for (n,sto) in dtr.sets[:Nodes_Storages]
+      JuMP.fix(STO_IN[(n,sto),1],0; force=true)
+end
+
+df_tech = dfDict["tech"][!,[:Technologies, :Status]] |> dropmissing
+tech_status = Dict(zip(df_tech[!,:Technologies],df_tech[!,:Status]))
+
+df_nodes = dfDict["nodes"] |> dropmissing
+node_DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
+
+df_node_tech = @linq dfDict["map_node_tech"] |>
+                  where(:IncludeFlag .== 1) |>
+                  select(:Nodes, :Technologies) |>
+                  dropmissing
+
+df_node_tech[!,:Status] = map(x -> tech_status[x], df_node_tech[!,:Technologies])
+df_node_tech[!,:DemandRegion] = map(x -> node_DemReg[x], df_node_tech[!,:Nodes])
+
+# Set an upper bound on each technology as a certain fraction `peak_factor` of the peak demand
+for x in eachrow(df_node_tech)
+      if x.Status == "NewEntrant"
+            # println(copy(x))
+            JuMP.set_upper_bound(N_TECH[(x.Nodes,x.Technologies)],
+                  dtr.settings[:peak_factor]*Peaks[x.DemandRegion])
+      end
+end
+
+# NewCapKeys = keys(filter(x -> ismissing(x.second), dtr.parameters[:ExistingCapacity]))
+
+
+# ExistingStoDict = filter(
+#                      x -> (!ismissing(x.second) && (x.first in dtr.sets[:Nodes_Techs])),
+#                      dtr.parameters[:ExistingCapacity]
+#                    )
+# ExistingStoDict = filter(
+#                      x -> (!ismissing(x.second) && (x.first in dtr.sets[:Nodes_Storages])),
+#                      dtr.parameters[:ExistingCapacity]
+#                    )
+
+# NewCapDict = filter(x -> ismissing(x.second), dtr.parameters[:ExistingCapacity])
 # for (n,t) in keys(NewCapDict)
 #       if t in ["RecipCmpD_New","RecipSpkG_New","OCGTd_New"]
 #             # println("Fixing N_TECH[($n, $t)]=0.")
@@ -414,12 +461,6 @@ end
 #             JuMP.fix(N_STO_E[(n,t)], 0; force=true)
 #       end
 # end
-
-# No storage inflow in first period
-for (n,sto) in dtr.sets[:Nodes_Storages]
-      JuMP.fix(STO_IN[(n,sto),1],0; force=true)
-end
-
 
 # %% Specialised solver settings
 # CPLEX:
