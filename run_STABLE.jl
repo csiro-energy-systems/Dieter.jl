@@ -46,7 +46,7 @@ scen_settings[:h2] = missing
 # Set the scaling of existing coal
 scen_settings[:coal_adjust] = 0.5;
 # Set the maximum allowed contribution to peak demand by a single technology
-scen_settings[:peak_factor] = 0.9
+scen_settings[:peak_factor] = 2.5;
 # %% Data paths and connections
 
 # projectpath = joinpath(ENV["HOME"],"Documents/Projects/ESM/Dieter.jl/")
@@ -236,16 +236,18 @@ dtr.parameters[:Peaks] = Peaks
 
 dfDict["avail"] = DataFrame()
 
-# Read data on assignment of trace names to a `Dict`ionary
+# Read data to a `Dict`ionary that creates an assignment of trace names:
 sqlquery_rez_trace = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM REZ_Trace_Map"; stricttypes=false);
 trace_corr = Dieter.SQLqueryToDict(sqlquery_rez_trace)
 
+# Read wind trace data:
 wind_traces = readtimearray(wind_traces_path)
 df_wind_traces = DataFrame(wind_traces)
 
-# Obtain hourly approximation:
+# Obtain hourly approximation of half-hour data by sampling on every second data point:
 df_wind_traces = df_wind_traces[1:2:end,names(df_wind_traces)]
 
+# Construct an integer OneTo(n)-like time indexing instead of timestamps:
 len_traces = nrow(df_wind_traces)
 insertcols!(df_wind_traces, 1, TimeIndex=collect(1:len_traces))
 select!(df_wind_traces, Not(:timestamp))
@@ -258,8 +260,18 @@ for tech_name in ["WindOn_Exi", "WindOn_New", "WindOff_New"]
       if tech_name == "WindOn_Exi"
             for rz in Symbol.(dtr.sets[:REZones])
                   if rz in names(df_trace_mod) && ismissing(trace_corr[String(rz)]["Wind_Exi"])
+                        @debug "No trace data: removing $(tech_name) trace in $(rz)"
                         select!(df_trace_mod, Not(rz))
                   end
+            end
+      end
+
+      nodes_for_tech = [x[1] for x in dtr.sets[:Nodes_Techs] if x[2] == tech_name] |> sort
+      # println(nodes_for_tech)
+      for rz in Symbol.(dtr.sets[:REZones])
+            if rz in names(df_trace_mod) && !(String(rz) in nodes_for_tech)
+                  @debug "Tech. not in zone: Removing $(tech_name) trace in $(rz)"
+                  select!(df_trace_mod, Not(rz))
             end
       end
 
@@ -274,18 +286,18 @@ for tech_name in ["WindOn_Exi", "WindOn_New", "WindOff_New"]
       append!(dfDict["avail"],df_trace_select)
 end
 
+# Read solar trace data:
 solar_traces = readtimearray(solar_traces_path)
 df_solar_traces = DataFrame(solar_traces)
 
-# Obtain hourly approximation:
+# Obtain hourly approximation of half-hour data by sampling on every second data point:
 df_solar_traces = df_solar_traces[1:2:end,names(df_solar_traces)]
 
+# Construct an integer OneTo(n)-like time indexing instead of timestamps:
 len_traces = nrow(df_solar_traces)
 insertcols!(df_solar_traces, 1, TimeIndex=collect(1:len_traces))
 select!(df_solar_traces, Not(:timestamp))
 
-# tech_name = "WindOn_Exi"
-# if tech_name in ["BattInvWind_Exi", "BattInvWind_New"]
 # for tech_name in ["SolFixedPV_Exi", "SolLargePV_Exi", "SolLargePV_New", "SolThermal_New"]
 for tech_name in ["SolarPV_Exi", "SolarPV_New", "SolThermal_New"]
       df_trace_mod = copy(df_solar_traces)
@@ -293,8 +305,18 @@ for tech_name in ["SolarPV_Exi", "SolarPV_New", "SolThermal_New"]
       if tech_name in ["SolarPV_Exi"]
             for rz in Symbol.(dtr.sets[:REZones])
                   if rz in names(df_trace_mod) && ismissing(trace_corr[String(rz)]["Solar_Exi"])
+                        @debug "No trace data: removing $(tech_name) trace in $(rz)"
                         select!(df_trace_mod, Not(rz))
                   end
+            end
+      end
+
+      nodes_for_tech = [x[1] for x in dtr.sets[:Nodes_Techs] if x[2] == tech_name] |> sort
+      # println(nodes_for_tech)
+      for rz in Symbol.(dtr.sets[:REZones])
+            if rz in names(df_trace_mod) && !(String(rz) in nodes_for_tech)
+                  @debug "Tech. not in zone: Removing $(tech_name) trace in $(rz)"
+                  select!(df_trace_mod, Not(rz))
             end
       end
 
@@ -311,6 +333,15 @@ end
 
 parse_availibility!(dtr,dfDict["avail"])
 
+# Construct the set of node/technology pairs that have availability traces.
+# This is used to validate the data before constraint construction.
+availpairs = unique!(dfDict["avail"][!,[:RenewRegionID,:TechTypeID]])
+dtr.sets[:Nodes_Avail_Techs] = [Tuple(x) for x in eachrow(availpairs)]
+
+if !isempty( setdiff(dtr.sets[:Nodes_Avail_Techs],dtr.sets[:Nodes_Techs]) )
+      println(setdiff(dtr.sets[:Nodes_Avail_Techs],dtr.sets[:Nodes_Techs]))
+      error("Available trace data includes a technology an excluded region.")
+end
 ## Existing capacity
 # sqlquery_exi_cap = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM Existing_Cap"; stricttypes=false);
 # exi_cap = Dieter.SQLqueryToDict(sqlquery_exi_cap)
@@ -412,28 +443,28 @@ for (n,sto) in dtr.sets[:Nodes_Storages]
       JuMP.fix(STO_IN[(n,sto),1],0; force=true)
 end
 
-df_tech = dfDict["tech"][!,[:Technologies, :Status]] |> dropmissing
-tech_status = Dict(zip(df_tech[!,:Technologies],df_tech[!,:Status]))
-
-df_nodes = dfDict["nodes"] |> dropmissing
-node_DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
-
-df_node_tech = @linq dfDict["map_node_tech"] |>
-                  where(:IncludeFlag .== 1) |>
-                  select(:Nodes, :Technologies) |>
-                  dropmissing
-
-df_node_tech[!,:Status] = map(x -> tech_status[x], df_node_tech[!,:Technologies])
-df_node_tech[!,:DemandRegion] = map(x -> node_DemReg[x], df_node_tech[!,:Nodes])
-
 # Set an upper bound on each technology as a certain fraction `peak_factor` of the peak demand
-for x in eachrow(df_node_tech)
-      if x.Status == "NewEntrant"
-            # println(copy(x))
-            JuMP.set_upper_bound(N_TECH[(x.Nodes,x.Technologies)],
-                  dtr.settings[:peak_factor]*Peaks[x.DemandRegion])
-      end
-end
+# df_tech = dfDict["tech"][!,[:Technologies, :Status]] |> dropmissing
+# tech_status = Dict(zip(df_tech[!,:Technologies],df_tech[!,:Status]))
+#
+# df_nodes = dfDict["nodes"] |> dropmissing
+# node_DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
+#
+# df_node_tech = @linq dfDict["map_node_tech"] |>
+#                   where(:IncludeFlag .== 1) |>
+#                   select(:Nodes, :Technologies) |>
+#                   dropmissing
+#
+# df_node_tech[!,:Status] = map(x -> tech_status[x], df_node_tech[!,:Technologies])
+# df_node_tech[!,:DemandRegion] = map(x -> node_DemReg[x], df_node_tech[!,:Nodes])
+#
+# for x in eachrow(df_node_tech)
+#       if x.Status == "NewEntrant"
+#             # println(copy(x))
+#             JuMP.set_upper_bound(N_TECH[(x.Nodes,x.Technologies)],
+#                   dtr.settings[:peak_factor]*Peaks[x.DemandRegion])
+#       end
+# end
 
 # NewCapKeys = keys(filter(x -> ismissing(x.second), dtr.parameters[:ExistingCapacity]))
 
@@ -500,7 +531,7 @@ generate_results!(dtr)
 #
 # %% Filtering results
 
-res = dtr.results
+# res = dtr.results
 
 df = res[:G]
 df_aug = @byrow! df begin

@@ -75,6 +75,9 @@ function build_model!(dtr::DieterModel,
     Nodes_Dispatch = dtr.sets[:Nodes_Dispatch]
     Nodes_NonDispatch = dtr.sets[:Nodes_NonDispatch]
 
+    # Subset of Nodes_Techs with availability traces
+    Nodes_Avail_Techs = dtr.sets[:Nodes_Avail_Techs]
+
     Nodes_Types = dtr.sets[:Nodes_Types]
     Nodes_Promotes = dtr.sets[:Nodes_Promotes]
 
@@ -167,7 +170,7 @@ function build_model!(dtr::DieterModel,
                     "EV_discharging" => "EV_DISCHARGE",
                     "EV_charge_level" => "EV_L",
                     "EV_PHEV_fuel_use" => "EV_PHEVFUEL",
-                    "EV_infeasible" => "EV_INF", 
+                    "EV_infeasible" => "EV_INF",
                     "Heat_storage_level" => "HEAT_STO_L",
                     "Heat_heat_pump_" => "HEAT_HP_IN",
                     "Heat_infeasible" => "HEAT_INF")
@@ -352,7 +355,7 @@ function build_model!(dtr::DieterModel,
     );
 
     @info "Variable upper bound on non-dispatchable generation by capacity."
-    @constraint(m, MaxGenerationNonDisp[(n,t)=Nodes_NonDispatch,h=Hours],
+    @constraint(m, MaxGenerationNonDisp[(n,t)=Nodes_Avail_Techs,h=Hours],
         # G[(n,t),h] + CU[(n,t),h] == Availability[n,t,h] * time_ratio * N_TECH[(n,t)]
         G[(n,t),h] <= Availability[n,t,h] * time_ratio * N_TECH[(n,t)]
     );
@@ -665,6 +668,8 @@ function generate_results!(dtr::DieterModel)
         :G => [:Nodes_Techs, :Hours],
         :G_UP => [:Nodes_Dispatch, :Hours],
         :G_DO => [:Nodes_Dispatch, :Hours],
+        :G_REZ => [:REZones,:Hours],
+        :G_TxZ => [:TxZones,:Hours],
         # :G_INF => [:Nodes,:Hours],
         # :CU => [:Nodes_NonDispatch, :Hours],
         :STO_IN => [:Nodes_Storages, :Hours],
@@ -673,6 +678,7 @@ function generate_results!(dtr::DieterModel)
         :N_TECH => [:Nodes_Techs],
         :N_STO_E => [:Nodes_Storages],
         :N_STO_P => [:Nodes_Storages],
+        :N_RES_EXP => [:REZones],
         :FLOW => [:Arcs,:Hours],
 
         :EV_CHARGE => [:EV, :Hours],
