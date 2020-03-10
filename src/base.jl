@@ -210,6 +210,16 @@ function parse_availibility!(dtr::DieterModel, df::DataFrame)
     params = map_idcol(df, [:RenewRegionID, :TechTypeID, :TimeIndex], skip_cols=Symbol[])
     for (k,v) in params update_dict!(dtr.parameters, k, v) end
 
+    # Construct the set of node/technology pairs that have availability traces.
+    # This is used to validate the data before constraint construction.
+    availpairs = unique!(df[!,[:RenewRegionID,:TechTypeID]])
+    dtr.sets[:Nodes_Avail_Techs] = [Tuple(x) for x in eachrow(availpairs)]
+
+    if !isempty( setdiff(dtr.sets[:Nodes_Avail_Techs],dtr.sets[:Nodes_Techs]) )
+          println(setdiff(dtr.sets[:Nodes_Avail_Techs],dtr.sets[:Nodes_Techs]))
+          error("Available trace data includes a technology an excluded region.")
+    end
+
     return nothing
 end
 

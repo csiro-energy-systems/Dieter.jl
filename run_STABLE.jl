@@ -333,15 +333,6 @@ end
 
 parse_availibility!(dtr,dfDict["avail"])
 
-# Construct the set of node/technology pairs that have availability traces.
-# This is used to validate the data before constraint construction.
-availpairs = unique!(dfDict["avail"][!,[:RenewRegionID,:TechTypeID]])
-dtr.sets[:Nodes_Avail_Techs] = [Tuple(x) for x in eachrow(availpairs)]
-
-if !isempty( setdiff(dtr.sets[:Nodes_Avail_Techs],dtr.sets[:Nodes_Techs]) )
-      println(setdiff(dtr.sets[:Nodes_Avail_Techs],dtr.sets[:Nodes_Techs]))
-      error("Available trace data includes a technology an excluded region.")
-end
 ## Existing capacity
 # sqlquery_exi_cap = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM Existing_Cap"; stricttypes=false);
 # exi_cap = Dieter.SQLqueryToDict(sqlquery_exi_cap)
@@ -581,46 +572,47 @@ using ColorSchemes
 # %% Plotting
 
 Hours = dtr.sets[:Hours]
-L = 1:336
+L = 1:168
+# L = 1:336
 # L = 5000:5336
 
 gr()
-gr(size=(5000,2000))
-# gr(size=(3000,600))
+# gr(size=(5000,2000))
+gr(size=(3000,600))
 # plotly()
 # plotly(size=(3000,600))
 
 # DemandReg = "TAS1"
-p = plot(layout=grid(5,1, height=4*[0.1,0.1,0.1,0.1,0.1]),margin=5mm);
+# p = plot(layout=grid(5,1, height=4*[0.1,0.1,0.1,0.1,0.1]),margin=5mm);
 
 for (count, DemandReg) in enumerate(["NSW1", "QLD1", "VIC1", "SA1", "TAS1"])
             # Load = dtr.parameters[:Load]
-      Demand = @where(dfDict["load"],:DemandRegion .== DemandReg)
+      # Demand = @where(dfDict["load"],:DemandRegion .== DemandReg)
       df_plot = dfStates[DemandReg]
       Techs = [Symbol(i) for i in DataFrames.unique(copy(df_plot[!,:Techs]))]
       NumTechs = length(Techs)
       # reTechs = reshape(Techs,NumTechs,1)
 
       df_unstack = unstack(df_plot,:Techs,:Level)
-
+      p = plot()
       # @df df_all[L,:] groupedbar(HOURS[L], cols(1:NumTech),  #cols(NumTech:-1:1),
       @df df_unstack[L,Techs] groupedbar!(p, Hours[L], cols(Techs),
-          subplot=count,
+          # subplot=count,
           margin=10mm,
           title=DemandReg,
           xlabel="Time",
           fillalpha=0.5,linealpha=0.1,
           bar_position=:stack,
-          legend=:none,  # `:none`, `:best`, `:right`, `:left`, `:top`, `:bottom`, `:inside`, `:legend`, `:topright`, `:topleft`, `:bottomleft`, `:bottomright`
-          color_palette=:colorwheel) # delta rainbow inferno darkrainbow colorwheel
+          legend=:best,  # `:none`, `:best`, `:right`, `:left`, `:top`, `:bottom`, `:inside`, `:legend`, `:topright`, `:topleft`, `:bottomleft`, `:bottomright`
+          color_palette=:balance) # phase delta rainbow inferno darkrainbow colorwheel
 
-      plot!(Hours[L], [Demand[L,:Load]],label="Demand",
-            subplot=count,
-            line=4, linecolour=:steelblue,
-            xtickfont = font(10, "Courier"),
-            xlabel="Time (hr)",
-            ylabel="Generation (MW)",
-            )
+      # plot!(Hours[L], [Demand[L,:Load]],label="Demand",
+      #       # subplot=count,
+      #       line=4, linecolour=:steelblue,
+      #       xtickfont = font(10, "Courier"),
+      #       xlabel="Time (hr)",
+      #       ylabel="Generation (MW)",
+      #       )
       # plot!(p,margin=15mm)
 
       df_regflow = @linq df_interflow |>
@@ -628,16 +620,15 @@ for (count, DemandReg) in enumerate(["NSW1", "QLD1", "VIC1", "SA1", "TAS1"])
                     by(:Hours, Level = sum(:Value))
 
       plot!(df_regflow[L,:Hours], [df_regflow[L,:Level]],label="Flow",
-            subplot=count,
+            # subplot=count,
             line=4, linecolour=:red,
             xtickfont = font(10, "Courier"),
             xlabel="Time (hr)",
             ylabel="Generation (MW)",
             margin=5mm
             )
-      # display(q)
+      display(p)
 end
-display(p)
 
 # %% Misc.
 # color_dict = Dict()
