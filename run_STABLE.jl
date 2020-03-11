@@ -257,21 +257,17 @@ select!(df_wind_traces, Not(:timestamp))
 for tech_name in ["WindOn_Exi", "WindOn_New", "WindOff_New"]
       df_trace_mod = copy(df_wind_traces)
 
-      if tech_name == "WindOn_Exi"
-            for rz in Symbol.(dtr.sets[:REZones])
-                  if rz in names(df_trace_mod) && ismissing(trace_corr[String(rz)]["Wind_Exi"])
-                        @debug "No trace data: removing $(tech_name) trace in $(rz)"
-                        select!(df_trace_mod, Not(rz))
-                  end
-            end
-      end
+      nodes_for_tech = [x[1] for x in dtr.sets[:Nodes_Techs] if x[2] == tech_name] |> sort #  println(nodes_for_tech)
 
-      nodes_for_tech = [x[1] for x in dtr.sets[:Nodes_Techs] if x[2] == tech_name] |> sort
-      # println(nodes_for_tech)
-      for rz in Symbol.(dtr.sets[:REZones])
-            if rz in names(df_trace_mod) && !(String(rz) in nodes_for_tech)
+      # Require all necessary traces to exist:
+      for rz in dtr.sets[:REZones]
+            if rz in nodes_for_tech && !(Symbol(rz) in names(df_trace_mod))
+                  error("Require trace in $(rz) for technology $(tech_name)")
+            end
+      # Remove unnecessary traces from data before compiling into model:
+            if Symbol(rz) in names(df_trace_mod) && !(rz in nodes_for_tech)
                   @debug "Tech. not in zone: Removing $(tech_name) trace in $(rz)"
-                  select!(df_trace_mod, Not(rz))
+                  select!(df_trace_mod, Not(Symbol(rz)))
             end
       end
 
@@ -303,20 +299,20 @@ for tech_name in ["SolarPV_Exi", "SolarPV_New", "SolThermal_New"]
       df_trace_mod = copy(df_solar_traces)
 
       if tech_name in ["SolarPV_Exi"]
-            for rz in Symbol.(dtr.sets[:REZones])
-                  if rz in names(df_trace_mod) && ismissing(trace_corr[String(rz)]["Solar_Exi"])
+            for rz in dtr.sets[:REZones]
+                  if Symbol(rz) in names(df_trace_mod) && ismissing(trace_corr[rz]["Solar_Exi"])
                         @debug "No trace data: removing $(tech_name) trace in $(rz)"
-                        select!(df_trace_mod, Not(rz))
+                        select!(df_trace_mod, Not(Symbol(rz)))
                   end
             end
       end
 
       nodes_for_tech = [x[1] for x in dtr.sets[:Nodes_Techs] if x[2] == tech_name] |> sort
       # println(nodes_for_tech)
-      for rz in Symbol.(dtr.sets[:REZones])
-            if rz in names(df_trace_mod) && !(String(rz) in nodes_for_tech)
+      for rz in dtr.sets[:REZones]
+            if Symbol(rz) in names(df_trace_mod) && !(rz in nodes_for_tech)
                   @debug "Tech. not in zone: Removing $(tech_name) trace in $(rz)"
-                  select!(df_trace_mod, Not(rz))
+                  select!(df_trace_mod, Not(Symbol(rz)))
             end
       end
 
@@ -497,6 +493,11 @@ JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_BAREPCOMP", 1e-6)   # Sets th
 solve_model!(dtr)
 generate_results!(dtr)
 
+sets = dtr.sets
+mod = dtr.model
+par = dtr.parameters
+res = dtr.results
+
 # %% Analysis
 # # include("analysis.jl")
 # df_summ = summarize_result(dtr,del_zeros=false)
@@ -522,15 +523,12 @@ generate_results!(dtr)
 #
 # %% Filtering results
 
-# res = dtr.results
+# Split dataframes with Tuple-type columns using split_df_tuple(), e.g.
+# split_df_tuple(res[:FLOW],:Arcs,[:From,:To])
+# split_df_tuple(res[:N_TECH],:Nodes_Techs,[:Nodes,:Techs])
 
-df = res[:G]
-df_aug = @byrow! df begin
-              @newcol Nodes::Array{String}
-              @newcol Techs::Array{String}
-              :Nodes = :Nodes_Techs[1]
-              :Techs = :Nodes_Techs[2]
-       end
+# df = res[:G]
+df_aug = split_df_tuple(res[:G],:Nodes_Techs,[:Nodes,:Techs])
 # dfDict = dtr.data["dataframes"]
 df_nodes = dfDict["nodes"]
 
@@ -548,14 +546,10 @@ for reg in dtr.sets[:DemandRegions]
                         by([:Techs,:Hours], Level = sum(:Value))
 end
 
-df_flow = res[:FLOW]
-df_flow = @byrow! df_flow begin
-            @newcol From::Array{String}
-            @newcol To::Array{String}
-            :From = :Arcs[1]
-            :To   = :Arcs[2]
-      end
+# df_flow = res[:FLOW]
+df_flow = split_df_tuple(res[:FLOW],:Arcs,[:From,:To])
 
+# Augment with a column showing the Demand Regions of the flow's nodes:
 df_flow[!,:FromRegion] = map(x -> node2DemReg[x], df_flow[!,:From])
 df_flow[!,:ToRegion] = map(x -> node2DemReg[x], df_flow[!,:To])
 
@@ -587,7 +581,7 @@ gr(size=(3000,600))
 
 for (count, DemandReg) in enumerate(["NSW1", "QLD1", "VIC1", "SA1", "TAS1"])
             # Load = dtr.parameters[:Load]
-      # Demand = @where(dfDict["load"],:DemandRegion .== DemandReg)
+      Demand = @where(dfDict["load"],:DemandRegion .== DemandReg)
       df_plot = dfStates[DemandReg]
       Techs = [Symbol(i) for i in DataFrames.unique(copy(df_plot[!,:Techs]))]
       NumTechs = length(Techs)
@@ -606,13 +600,13 @@ for (count, DemandReg) in enumerate(["NSW1", "QLD1", "VIC1", "SA1", "TAS1"])
           legend=:best,  # `:none`, `:best`, `:right`, `:left`, `:top`, `:bottom`, `:inside`, `:legend`, `:topright`, `:topleft`, `:bottomleft`, `:bottomright`
           color_palette=:balance) # phase delta rainbow inferno darkrainbow colorwheel
 
-      # plot!(Hours[L], [Demand[L,:Load]],label="Demand",
-      #       # subplot=count,
-      #       line=4, linecolour=:steelblue,
-      #       xtickfont = font(10, "Courier"),
-      #       xlabel="Time (hr)",
-      #       ylabel="Generation (MW)",
-      #       )
+      plot!(Hours[L], [Demand[L,:Load]],label="Demand",
+            # subplot=count,
+            line=4, linecolour=:steelblue,
+            xtickfont = font(10, "Courier"),
+            xlabel="Time (hr)",
+            ylabel="Generation (MW)",
+            )
       # plot!(p,margin=15mm)
 
       df_regflow = @linq df_interflow |>

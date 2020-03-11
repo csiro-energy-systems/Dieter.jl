@@ -82,7 +82,7 @@ function create_relation(df::DataFrame,First::Symbol,Second::Symbol,
 end
 
 "Update a data Dict, merging the data if present, adding data if not present"
-function update_dict!(dict::Dict{Symbol,Any}, key, val::Dict)
+function update_dict!(dict::Dict{Symbol,Dict}, key, val::Dict)
     # if !isa(val,Dict)
         # @warn "This function expects the value $val to be of type Dict"
     # end
@@ -275,9 +275,9 @@ table2df(mat) = DataFrame(mat[2:end,:], Symbol.(mat[1,:]))
 """
     tableToDict(tab::Array{Any,2}; keycols::Array{Int64,1}=[1])
 
-Create a dictionary from an array in table form, where the table has:
- - key-index or indices in the `keycol` array (integer indexing), and
- - the column names for data appear (as strings) in the first row.
+Create a dictionary from an array in table form, where the table `tab` has:
+ - key-index or indices given in the `keycol` array (integer column position), and
+ - the column names for data appear in the first row.
 """
 function tableToDict(tab::Array{Any,2}; keycols::Array{Int64,1}=[1])
     DataDict = Dict{Union{String,Tuple{String,Vararg{String}}},Any}() # initialise the dictionary that the function returns
@@ -287,17 +287,10 @@ function tableToDict(tab::Array{Any,2}; keycols::Array{Int64,1}=[1])
     KeyArray    = tab[2:end,keycols]  # the keys for each row
     TableData   = tab[2:end,:]        # the data in the input array
 
-    # println(KeysName)
-    # println(ColumnNames)
-    # println(Keys)
-    # println(TableData)
-    # println(collect(enumerate(Keys)))
     NumberRows    = size(TableData)[1]
     NumberColumns = size(TableData)[2]
     # Index columns with the key column removed:
     DataColumnIndices = setdiff(1:NumberColumns,keycols)
-
-    # println(DataColumnIndices)
 
     if length(keycols) == 1 # # Make the DataDict key a singleton
         Keys = KeyArray
@@ -323,4 +316,43 @@ function SQLqueryToDict(sqlquery::SQLite.Query; keycols::Array{Int64,1}=[1])
     DataDict = tableToDict(tableArray; keycols=keycols)
 
     return DataDict
+end
+
+"""
+Split a column of Tuples in `InputCol` into individual columns named with `OutputCols` vector of Symbols.
+Note that the Symbols in `OutputCols` need to be of the name length and order to correspond to the splitting Tuples.
+
+ ### Arguments
+
+ * `df` : a `DataFrame`
+ * `InputCol` : a `Symbol` for a column of type `Tuple{Types...}`
+ * `OutputCols`: a `Vector` of `Symbol`s for new column names,
+
+ ### Returns
+
+ * `::DataFrame`
+
+ ### Examples
+
+ ```
+ julia> using DataFramesMeta, DataFrames
+
+ julia> df = DataFrame(A_N = [("a",1),("b",2)], V = [8,9]);
+
+ julia> split_df_tuple(df, :A_N, [:A, :N])
+2×4 DataFrame
+│ Row │ A_N      │ V     │ A      │ N     │
+│     │ Tuple…   │ Int64 │ String │ Int64 │
+├─────┼──────────┼───────┼────────┼───────┤
+│ 1   │ ("a", 1) │ 8     │ a      │ 1     │
+│ 2   │ ("b", 2) │ 9     │ b      │ 2     │
+ ```
+
+"""
+function split_df_tuple(df::DataFrame, InputCol::Symbol,OutputCols::Vector{Symbol})
+      df_split = copy(df)
+      for (i, newcol) in enumerate(OutputCols)
+            df_split[!,newcol] = [tup[i] for tup in df_split[!,InputCol]]
+      end
+      return df_split
 end
