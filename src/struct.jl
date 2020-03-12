@@ -5,7 +5,7 @@
 The `def` macro is used to build other macros that can insert the same block of
 Julia code into different parts of a program.
 This is macro is used to generate a standard set of fields inside a model type
-hierarchy. (Original code from InfrastructureModels.jl)
+hierarchy. (Thanks: Original code from InfrastructureModels.jl)
 """
 macro def(name, definition)
     return quote
@@ -23,14 +23,10 @@ A macro for adding the basic fields to an AbstractDieterModel type definition.
 """
 @def dm_fields begin
     model::JuMP.AbstractModel
-
     data::Dict{String,<:Any}
-
     sets::Dict{Symbol,Array{<:Any,1}}
     parameters::Dict{Symbol,<:Any}
-
     settings::Dict{Symbol,<:Any}
-
     results::Dict{Symbol,<:Any}
 
     # ref::Dict{Symbol,<:Any} # reference data
@@ -69,7 +65,7 @@ function InitialiseDieterModel(ModelType::Type, data::Dict{String,T} where T;
 
         default_settings = Dict{Symbol, Union{String,Number}}(
             :scen => "Default",
-            :datapath => "",
+            :datapath => datapath,
             :interest => 0.04,
             :co2 => 0,     # Carbon Price
             :min_res => 0,  # Minimum Renewable Share (%)
@@ -78,8 +74,6 @@ function InitialiseDieterModel(ModelType::Type, data::Dict{String,T} where T;
             :heat => 0,
             :h2 => 0
         )
-        default_settings[:datapath] = datapath
-        # default_settings[:interest] = interest
 
         initial_settings = merge(default_settings, settings)
 

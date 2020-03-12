@@ -2,31 +2,26 @@
 
 # %% Load packages
 using Dieter
-
 import Dieter: parse_file, parse_nodes!, parse_base_technologies!, parse_storages!, parse_load!, parse_availibility!
 import Dieter: initialise_set_relation_data!, parse_set_relations!,parse_arcs!, calc_base_parameters!
+import Dieter: dvalmatch, dkeymatch, split_df_tuple
 
 using JuMP
 import MathOptInterface
 import CPLEX
 
-# using LibPQ
-using Tables
 using DataFrames
 using DataFramesMeta
 import SQLite
 import CSV
-using TimeSeries
+import TimeSeries
+using Dates
+# using Tables
 # import XLSX
 
-# %% Misc. utility functions
-# Filter a Dictionary for a matching string in the value or key, resp.
-dvalmatch(d::Dict,s::Regex) = filter(x -> !ismissing(x.second) && occursin(s,x.second),d)
-dkeymatch(d::Dict,s::Regex) = filter(x -> !ismissing(x.second) && occursin(s,x.first),d)
-dkeymatch(d::Dict,s::Regex,pos::Int) = filter(x -> !ismissing(x.second) && occursin(s,x.first[pos]),d)
-# dkeymatch(d::Dict{Tuple{String,String},Float64},s::Regex,pos::Int) = dkeymatch(d,s,pos)
-
 # %% Scenario Settings (to customise by modeller)
+
+run_timestamp = "$(Date(Dates.now()))-H$(hour(now()))"
 
 # Year parameters
 Demand_Year = 2019 # Financial year 2018-2019
@@ -36,12 +31,19 @@ Trace_Year = 2030 # Which year to use from the Reference_Year trace dataset
 # Technology
 scen_settings =Dict{Symbol,Any}()
 
+scen_settings[:scen] = run_timestamp*"-Testing"
 scen_settings[:interest] = 0.06
+scen_settings[:cost_scaling] = 1.0e-6
 # Modify the :min_res setting over [0,100] and rerun to see comparison.
 scen_settings[:min_res] = 10
 scen_settings[:ev] = missing
 scen_settings[:heat] = missing
 scen_settings[:h2] = missing
+
+# Hourly timestep: 2, Half-hourly timestep: 1
+# If timestep = 2, we obtain an hourly approximation of half-hour data by sampling on every second data point.
+scen_settings[:timestep] = 2
+timestep = scen_settings[:timestep]
 
 # Set the scaling of existing coal
 scen_settings[:coal_adjust] = 0.5;
@@ -52,52 +54,43 @@ scen_settings[:peak_factor] = 2.5;
 # projectpath = joinpath(ENV["HOME"],"Documents/Projects/ESM/Dieter.jl/")
 projectpath = pwd()
 # datapath = joinpath(projectpath,"testdata/")
-datapath = joinpath(projectpath,"STABLE_run_data")
-# resultsdir = joinpath(ENV["HOME"],"Documents/Projects/ESM/results_stable")
+datapath_STABLE = joinpath(projectpath,"STABLE_run_data")
 
-trace_read_path = joinpath(datapath,"STABLE_input_traces")
-wind_traces_path = joinpath(trace_read_path,"REZ_Wind_Traces_RefYear$(Reference_Year)_FYE$(Trace_Year).csv")
-solar_traces_path = joinpath(trace_read_path,"REZ_Solar_Traces_RefYear$(Reference_Year)_FYE$(Trace_Year).csv")
+if Base.Sys.isapple()
+      resultsdir = joinpath(ENV["HOME"],"Documents/Projects/ESM/","results_STABLE")
+elseif Base.Sys.iswindows()
+      resultsdir = joinpath("F:\\STABLE\\","results_STABLE")
+end
+
+results_filename = run_timestamp*"-results-Julia_Serial.dat"
+
+sql_db_path = joinpath(datapath_STABLE,"STABLE_run_data.db")
+dataname=sql_db_path
+
+trace_read_path = joinpath(datapath_STABLE,"STABLE_input_traces")
 
 # %% Instantiate data model
+# # Initialise a basic file structure for accessing the model data:
 # Dieter.initialise_data_dir_structure(datapath)
 
 data_instance = Dict{String,Any}()
-dtr = InitialiseDieterModel(DieterModel, data_instance)
-dtr.settings[:datapath] = datapath
-# data_instance["files"] = Dict{String,String}()
-# fileDict = dtr.data["files"]
+dtr = InitialiseDieterModel(DieterModel, data_instance; datapath=datapath_STABLE, settings=scen_settings)
 
-dtr.settings[:interest] = scen_settings[:interest]
-# Modify the :min_res setting over [0,100] and rerun to see comparison.
-dtr.settings[:min_res] = scen_settings[:min_res]
-dtr.settings[:ev] = scen_settings[:ev]
-dtr.settings[:heat] = scen_settings[:heat]
-dtr.settings[:h2] = scen_settings[:h2]
-
-dtr.settings[:coal_adjust] = scen_settings[:coal_adjust]
-dtr.settings[:peak_factor] = scen_settings[:peak_factor]
-
-initialise_data_file_dict!(dtr,"sql")
-# dtr.data["files"]
-check_files_exist(dtr.data["files"])
-
-sql_db_path = joinpath(datapath,"STABLE_run_data.db")
-
-# %% Load data into the model
-
-# dfDict = parse_data_to_model!(dtr,dataname=sql_db_path)
-# dfDict acccesible as dtr.data["dataframes"]
-dataname=sql_db_path
 datapath = dtr.settings[:datapath]
 
-fileDict = dtr.data["files"]
-
 dtr.data["dataframes"] = Dict{String,DataFrame}()
-
 dfDict = dtr.data["dataframes"]
 
-# %% Base data
+# Create dtr.data["files"] Dict:
+initialise_data_file_dict!(dtr,"sql")
+
+check_files_exist(dtr.data["files"])
+fileDict = dtr.data["files"]
+
+# # Generically we run this to instantiate the data:
+# Dieter.parse_data_to_model!(dtr; dataname=dataname)
+# # else:
+# %% Load data into the model: Base data
 
 dfDict["nodes"] = parse_file(fileDict["nodes"]; dataname=dataname)
 parse_nodes!(dtr,dfDict["nodes"])
@@ -105,27 +98,35 @@ parse_nodes!(dtr,dfDict["nodes"])
 # e.g. fileDict["tech"] = joinpath(datapath,"base","technologies.csv")
 dfDict["tech"] = parse_file(fileDict["tech"]; dataname=dataname)
 
+# e.g. fileDict["storage"] = joinpath(datapath,"base","storages.csv")
+dfDict["storage"] = parse_file(fileDict["storage"]; dataname=dataname)
+
 # %% Modify data in-frame:
 
-# Make Hydro (Hydro Gravity and Run of River) plants Dispatchable
-# dt = dfDict["tech"]
-# @linq dt |> where(:Technologies .== "Hydro_Exi") |> select(:Dispatchable)
-dfDict["tech"] = @byrow! dfDict["tech"] if :Technologies == "Hydro_Exi"; :Dispatchable = 1 end
-dfDict["tech"] = @byrow! dfDict["tech"] if :Technologies == "Hydro_New"; :Dispatchable = 1 end
-# @linq dt |> where(:Technologies .== "Hydro_Exi") |> select(:Dispatchable)
-@linq dfDict["tech"] |> where(:Technologies .== "Hydro_Exi") |> select(:Dispatchable)
+# Existing capacity
+# sqlquery_exi_cap = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM Existing_Cap"; stricttypes=false);
+# exi_cap = Dieter.SQLqueryToDict(sqlquery_exi_cap)
 
-# Filter out new technologies and overwrite the DataFrame
-# dfDict["tech"] = @where(dfDict["tech"], occursin.(r"_Exi",:Technologies ))
+# Set the overnight cost of existing capacity to 0:
+dfDict["tech"] = @byrow! dfDict["tech"] if :Status == "GenericExisting"; :OvernightCostPower = 0 end
+dfDict["storage"] = @byrow! dfDict["storage"] if :Status == "GenericExisting"; :OvernightCostPower = 0 end
+dfDict["storage"] = @byrow! dfDict["storage"] if :Status == "GenericExisting"; :OvernightCostEnergy = 0 end
+
+# Make Hydro (Hydro Gravity and Run of River) plants Dispatchable
+dfDict["tech"] = @byrow! dfDict["tech"] if :TechType .== "Hydro"; :Dispatchable = 1 end
+# dfDict["tech"] = @byrow! dfDict["tech"] if :Technologies == "Hydro_Exi"; :Dispatchable = 1 end
+# dfDict["tech"] = @byrow! dfDict["tech"] if :Technologies == "Hydro_New"; :Dispatchable = 1 end
+
+@linq dfDict["tech"] |> where(:TechType .== "Hydro") |> select(:Dispatchable)
 
 # Add a Carbon Content column with zero values
 insertcols!(dfDict["tech"], size(dfDict["tech"])[2], CarbonContent=zeros(size(dfDict["tech"])[1]))
 
+# %% Parse data into model structure:
+
 parse_base_technologies!(dtr, dfDict["tech"])
 # parse_base_technologies!(dtr, dfDict["tech"])
 
-# e.g. fileDict["storage"] = joinpath(datapath,"base","storages.csv")
-dfDict["storage"] = parse_file(fileDict["storage"]; dataname=dataname)
 parse_storages!(dtr, dfDict["storage"])
 
 # %% Relations (i.e set-to-set correspondences)
@@ -133,41 +134,6 @@ dfDict["map_node_demand"] = parse_file(fileDict["map_node_demand"]; dataname=dat
 dfDict["map_node_tech"] = parse_file(fileDict["map_node_tech"]; dataname=dataname)
 dfDict["map_node_storages"] = parse_file(fileDict["map_node_storages"]; dataname=dataname)
 dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
-
-# %% Modify included technologies
-
-#=
-# If the technology is not existing, do not include it.
-dfDict["map_node_tech"] =
-@byrow! dfDict["map_node_tech"] begin
-      if !occursin(r"_Exi",:Technologies)
-            :IncludeFlag = 0
-      end
-end
-=#
-# @linq dfDict["map_node_tech"] |> where(:IncludeFlag .== 1)
-#=
-@byrow! dfDict["map_node_storages"] begin
-      if !occursin(r"_Exi",:Technologies)
-            :IncludeFlag = 0
-      end
-end
-=#
-#=
-# Get the nodes for existing pumped hydro "HydPump_Exi":
-df_phn = @linq dfDict["map_node_storages"] |>
-where(:Technologies .== "HydPump_Exi") |>
-select(:Nodes)
-# Convert to a simpler array for checking against:
-hydpump_nodes = df_phn[!,:Nodes]
-# Filter out locations without existing pumped hydro, and "BattInvWind_New"
-dfDict["map_node_storages"] = @byrow! dfDict["map_node_storages"] begin
-      if ( ( :Technologies == "HydPump_New" && !(:Nodes in hydpump_nodes) )  || :Technologies == "BattInvWind_New")
-            :IncludeFlag = 0
-      end
-end
-=#
-
 
 # %% Create relational sets
 
@@ -182,21 +148,13 @@ parse_arcs!(dtr,dfDict["arcs"])
 
 load_trace_datapath = joinpath(trace_read_path,"Load_FYE$(Demand_Year).csv")
 
-# In-line function:
-# getTableAsDF(conn,string) = DataFrame(Tables.columntable(LibPQ.execute(conn,string)))
-
-# conn_to_pgdb = "dbname=nemcheck host=/tmp port=5432 user=xxx"
-# conn = LibPQ.Connection(conn_to_pgdb)
-# df_OpDem = getTableAsDF(conn,"select * from nem_op_demand where getfinyr(datetime)=$(Demand_Year)")
-# CSV.write(load_trace_datapath,df_OpDem)
-
 # The operational demand table has time stamps for keys and one column per region.
 df_OpDem = DataFrame(CSV.File(load_trace_datapath))
 
 # Transformations of the raw data:
 
-# Obtain hourly approximation:
-df_OpDem = df_OpDem[1:2:end,names(df_OpDem)]
+# If timestep = 2, we obtain an hourly approximation of half-hour data by sampling on every second data point:
+df_OpDem = df_OpDem[1:timestep:end,names(df_OpDem)]
 
 # ta_OpDem = TimeArray(df_OpDem, timestamp = :datetime)
 dropmissing!(df_OpDem)
@@ -240,108 +198,62 @@ dfDict["avail"] = DataFrame()
 sqlquery_rez_trace = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM REZ_Trace_Map"; stricttypes=false);
 trace_corr = Dieter.SQLqueryToDict(sqlquery_rez_trace)
 
-# Read wind trace data:
-wind_traces = readtimearray(wind_traces_path)
-df_wind_traces = DataFrame(wind_traces)
+wind_traces_path = joinpath(trace_read_path,"REZ_Wind_Traces_RefYear$(Reference_Year)_FYE$(Trace_Year).csv")
+solar_traces_path = joinpath(trace_read_path,"REZ_Solar_Traces_RefYear$(Reference_Year)_FYE$(Trace_Year).csv")
 
-# Obtain hourly approximation of half-hour data by sampling on every second data point:
-df_wind_traces = df_wind_traces[1:2:end,names(df_wind_traces)]
+dtr.data["files"]["Wind"] = wind_traces_path
+dtr.data["files"]["Solar"] = solar_traces_path
 
-# Construct an integer OneTo(n)-like time indexing instead of timestamps:
-len_traces = nrow(df_wind_traces)
-insertcols!(df_wind_traces, 1, TimeIndex=collect(1:len_traces))
-select!(df_wind_traces, Not(:timestamp))
+tech_subset = Dict()
+tech_subset["Wind"]  = ["WindOn_Exi", "WindOn_New", "WindOff_New"]
+tech_subset["Solar"] = ["SolarPV_Exi", "SolarPV_New", "SolThermal_New"]
+# alt.: ["SolFixedPV_Exi", "SolLargePV_Exi", "SolLargePV_New", "SolThermal_New"]
 
-# tech_name = "WindOn_Exi"
-# if tech_name in ["BattInvWind_Exi", "BattInvWind_New"]
-for tech_name in ["WindOn_Exi", "WindOn_New", "WindOff_New"]
-      df_trace_mod = copy(df_wind_traces)
+for tech_class in ["Wind", "Solar"]
+      traces_path = dtr.data["files"][tech_class]
+      # Read trace data:
+      df_traces = DataFrame(TimeSeries.readtimearray(traces_path))
 
-      nodes_for_tech = [x[1] for x in dtr.sets[:Nodes_Techs] if x[2] == tech_name] |> sort #  println(nodes_for_tech)
+      # If timestep = 2, we obtain an hourly approximation of half-hour data by sampling on every second data point:
+      df_traces = df_traces[1:timestep:end,names(df_traces)]
 
-      # Require all necessary traces to exist:
-      for rz in dtr.sets[:REZones]
-            if rz in nodes_for_tech && !(Symbol(rz) in names(df_trace_mod))
-                  error("Require trace in $(rz) for technology $(tech_name)")
-            end
-      # Remove unnecessary traces from data before compiling into model:
-            if Symbol(rz) in names(df_trace_mod) && !(rz in nodes_for_tech)
-                  @debug "Tech. not in zone: Removing $(tech_name) trace in $(rz)"
-                  select!(df_trace_mod, Not(Symbol(rz)))
-            end
-      end
+      # Construct an integer OneTo(n)-like time indexing instead of timestamps:
+      len_traces = nrow(df_traces)
+      insertcols!(df_traces, 1, TimeIndex=collect(1:len_traces))
+      select!(df_traces, Not(:timestamp))
 
-      insertcols!(df_trace_mod, 1, TechTypeID=repeat([tech_name],len_traces))
-      df_trace_stack = stack(df_trace_mod, Not([:TimeIndex,:TechTypeID]))
+      for tech_name in tech_subset[tech_class]
+            df_trace_mod = copy(df_traces)
 
-       df_trace_select = @linq df_trace_stack |>
-                              transform(RenewRegionID = String.(:variable),
-                                        Availability = :value) |>
-                              select(:TimeIndex,:RenewRegionID,:TechTypeID,:Availability)
+            nodes_for_tech = [x[1] for x in dtr.sets[:Nodes_Techs] if x[2] == tech_name] |> sort #  println(nodes_for_tech)
 
-      append!(dfDict["avail"],df_trace_select)
-end
-
-# Read solar trace data:
-solar_traces = readtimearray(solar_traces_path)
-df_solar_traces = DataFrame(solar_traces)
-
-# Obtain hourly approximation of half-hour data by sampling on every second data point:
-df_solar_traces = df_solar_traces[1:2:end,names(df_solar_traces)]
-
-# Construct an integer OneTo(n)-like time indexing instead of timestamps:
-len_traces = nrow(df_solar_traces)
-insertcols!(df_solar_traces, 1, TimeIndex=collect(1:len_traces))
-select!(df_solar_traces, Not(:timestamp))
-
-# for tech_name in ["SolFixedPV_Exi", "SolLargePV_Exi", "SolLargePV_New", "SolThermal_New"]
-for tech_name in ["SolarPV_Exi", "SolarPV_New", "SolThermal_New"]
-      df_trace_mod = copy(df_solar_traces)
-
-      if tech_name in ["SolarPV_Exi"]
+            # Require all necessary traces to exist:
             for rz in dtr.sets[:REZones]
-                  if Symbol(rz) in names(df_trace_mod) && ismissing(trace_corr[rz]["Solar_Exi"])
-                        @debug "No trace data: removing $(tech_name) trace in $(rz)"
+                  if rz in nodes_for_tech && !(Symbol(rz) in names(df_trace_mod))
+                        error("Require trace in $(rz) for technology $(tech_name)")
+                  end
+            # Remove unnecessary traces from data before compiling into model:
+                  if Symbol(rz) in names(df_trace_mod) && !(rz in nodes_for_tech)
+                        @debug "Tech. not in zone: Removing $(tech_name) trace in $(rz)"
                         select!(df_trace_mod, Not(Symbol(rz)))
                   end
             end
+
+            insertcols!(df_trace_mod, 1, TechTypeID=repeat([tech_name],len_traces))
+            df_trace_stack = stack(df_trace_mod, Not([:TimeIndex,:TechTypeID]))
+
+             df_trace_select = @linq df_trace_stack |>
+                                    transform(RenewRegionID = String.(:variable),
+                                              Availability = :value) |>
+                                    select(:TimeIndex,:RenewRegionID,:TechTypeID,:Availability)
+
+            append!(dfDict["avail"],df_trace_select)
       end
-
-      nodes_for_tech = [x[1] for x in dtr.sets[:Nodes_Techs] if x[2] == tech_name] |> sort
-      # println(nodes_for_tech)
-      for rz in dtr.sets[:REZones]
-            if Symbol(rz) in names(df_trace_mod) && !(rz in nodes_for_tech)
-                  @debug "Tech. not in zone: Removing $(tech_name) trace in $(rz)"
-                  select!(df_trace_mod, Not(Symbol(rz)))
-            end
-      end
-
-      insertcols!(df_trace_mod, 1, TechTypeID=repeat([tech_name],len_traces))
-      df_trace_stack = stack(df_trace_mod, Not([:TimeIndex,:TechTypeID]))
-
-       df_trace_select = @linq df_trace_stack |>
-                              transform(RenewRegionID = String.(:variable),
-                                        Availability = :value) |>
-                              select(:TimeIndex,:RenewRegionID,:TechTypeID,:Availability)
-
-      append!(dfDict["avail"],df_trace_select)
 end
 
 parse_availibility!(dtr,dfDict["avail"])
 
-## Existing capacity
-# sqlquery_exi_cap = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM Existing_Cap"; stricttypes=false);
-# exi_cap = Dieter.SQLqueryToDict(sqlquery_exi_cap)
-
-# Set the overnight cost of existing capacity to 0:
-OvernightCostPower = dtr.parameters[:OvernightCostPower]
-for t in keys(OvernightCostPower)
-      if occursin(r"_Exi",t[2])
-            OvernightCostPower[t] = 0
-      end
-end
-
-# Assumption: there is a direct relationship between REZs and NonDispatchable techs.
+# # Assumption: there is a direct relationship between REZs and NonDispatchable techs.
 df_REZ_to_Techs = unique(dfDict["avail"][!,[:RenewRegionID,:TechTypeID]])
 insertcols!(df_REZ_to_Techs,3,IncludeFlag=ones(Int,nrow(df_REZ_to_Techs)))
 rel_rez_tech = Dieter.create_relation(df_REZ_to_Techs,:RenewRegionID,:TechTypeID,:IncludeFlag)
@@ -357,11 +269,6 @@ calc_base_parameters!(dtr)
 
 # %% Extensions
 Dieter.parse_extensions!(dtr,dataname=sql_db_path)
-
-# # Filter tuples examples:
-# [x[1] for x in filter(x -> (x[2]=="REZone"),s[:Nodes_Types])]
-# [x[1] for x in filter(x -> (x[2]=="TxZone"),s[:Nodes_Types])]
-
 
 # %% Additional parameters
 
@@ -453,32 +360,7 @@ end
 #       end
 # end
 
-# NewCapKeys = keys(filter(x -> ismissing(x.second), dtr.parameters[:ExistingCapacity]))
 
-
-# ExistingStoDict = filter(
-#                      x -> (!ismissing(x.second) && (x.first in dtr.sets[:Nodes_Techs])),
-#                      dtr.parameters[:ExistingCapacity]
-#                    )
-# ExistingStoDict = filter(
-#                      x -> (!ismissing(x.second) && (x.first in dtr.sets[:Nodes_Storages])),
-#                      dtr.parameters[:ExistingCapacity]
-#                    )
-
-# NewCapDict = filter(x -> ismissing(x.second), dtr.parameters[:ExistingCapacity])
-# for (n,t) in keys(NewCapDict)
-#       if t in ["RecipCmpD_New","RecipSpkG_New","OCGTd_New"]
-#             # println("Fixing N_TECH[($n, $t)]=0.")
-#             JuMP.fix(N_TECH[(n,t)], 0; force=true)
-#       end
-#
-#       if t in ["BattInvWind_New"]
-#             # println("Fixing N_STO_P[($n, $t)]=0.")
-#             JuMP.fix(N_STO_P[(n,t)], 0; force=true)
-#             # println("Fixing N_STO_E[($n, $t)]=0.")
-#             JuMP.fix(N_STO_E[(n,t)], 0; force=true)
-#       end
-# end
 
 # %% Specialised solver settings
 # CPLEX:

@@ -1,6 +1,4 @@
-Type
-# %%
-## TODO ? : Split the parsing to the DataFrame Dict from the model transformations.
+
 """
 Build the data for the model, returning intermediate `DataFrame`s containing parsed data.
 The function will not parse data where the corresponding model setting equals `missing`.
@@ -212,7 +210,7 @@ function parse_availibility!(dtr::DieterModel, df::DataFrame)
 
     # Construct the set of node/technology pairs that have availability traces.
     # This is used to validate the data before constraint construction.
-    availpairs = unique!(df[!,[:RenewRegionID,:TechTypeID]])
+    availpairs = unique(df[!,[:RenewRegionID,:TechTypeID]])
     dtr.sets[:Nodes_Avail_Techs] = [Tuple(x) for x in eachrow(availpairs)]
 
     if !isempty( setdiff(dtr.sets[:Nodes_Avail_Techs],dtr.sets[:Nodes_Techs]) )
