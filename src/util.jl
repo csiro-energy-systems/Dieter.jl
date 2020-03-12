@@ -1,8 +1,5 @@
 # This file is part of Dieter: Utility functions
 
-## TODO : Write a function that looks at a DataFrame with a Tuple{N,M} type column.
-## Outputs a new DataFrame with the tuples split into two columns of type N, M resp.
-
 "Given a Dict of keys => filenames, check at files exist"
 function check_files_exist(fileDict::Dict{String,String})
     for (k,v) in fileDict
@@ -13,11 +10,6 @@ function check_files_exist(fileDict::Dict{String,String})
     end
 
     return true
-end
-
-"Check if a `Dict`ionary has all missing values; if so, return `true`"
-function isDictAllMissing(dict::Dict{T,S} where {T, S <: Union{Missing, Any}})
-    return filter(x -> !ismissing(x.second), dict) |> isempty
 end
 
 "Parse a given data file and return the desired data in a `DataFrame`."
@@ -82,7 +74,7 @@ function create_relation(df::DataFrame,First::Symbol,Second::Symbol,
 end
 
 "Update a data Dict, merging the data if present, adding data if not present"
-function update_dict!(dict::Dict{Symbol,Dict}, key, val::Dict)
+function update_dict!(dict::Dict{Symbol,Any}, key, val::Dict)
     # if !isa(val,Dict)
         # @warn "This function expects the value $val to be of type Dict"
     # end
@@ -318,9 +310,14 @@ function SQLqueryToDict(sqlquery::SQLite.Query; keycols::Array{Int64,1}=[1])
     return DataDict
 end
 
+
+
 """
-Split a column of Tuples in `InputCol` into individual columns named with `OutputCols` vector of Symbols.
-Note that the Symbols in `OutputCols` need to be of the name length and order to correspond to the splitting Tuples.
+`split_df_tuple` is a function that transforms a DataFrame with a Tuple{N,M...} type column.
+It outputs an augmented DataFrame with the tuples split into two columns of type N, M... resp.
+
+The function splits the column `InputCol` of type `Tuple` into individual columns named with `OutputCols` vector of Symbols.
+Note that the `Symbol`s in `OutputCols` need to be of the name length and order to correspond to the splitting `Tuple`s.
 
  ### Arguments
 
@@ -350,9 +347,24 @@ Note that the Symbols in `OutputCols` need to be of the name length and order to
 
 """
 function split_df_tuple(df::DataFrame, InputCol::Symbol,OutputCols::Vector{Symbol})
-      df_split = copy(df)
-      for (i, newcol) in enumerate(OutputCols)
-            df_split[!,newcol] = [tup[i] for tup in df_split[!,InputCol]]
-      end
-      return df_split
+      return split_df_tuple!(copy(df),InputCol,OutputCols)
 end
+
+function split_df_tuple!(df::DataFrame, InputCol::Symbol,OutputCols::Vector{Symbol})
+      for (i, newcol) in enumerate(OutputCols)
+            df[!,newcol] = [tup[i] for tup in df[!,InputCol]]
+      end
+      return df
+end
+
+"Check if a `Dict`ionary has all missing values; if so, return `true`"
+function isDictAllMissing(dict::Dict{T,S} where {T, S <: Union{Missing, Any}})
+    return filter(x -> !ismissing(x.second), dict) |> isempty
+end
+
+# Filter a Dictionary for a matching string in the key.
+dkeymatch(d::Dict,s::Regex) = filter(x -> (!ismissing(x.second) && occursin(s,x.first)),d)
+# Filter a Dictionary for a matching string in the `pos`-th position in a Tuple key.
+dkeymatch(d::Dict,s::Regex,pos::Int) = filter(x -> (!ismissing(x.second) && occursin(s,x.first[pos])),d)
+# Filter a Dictionary for a matching string in the value.
+dvalmatch(d::Dict,s::Regex) = filter(x -> (!ismissing(x.second) && occursin(s,x.second)),d)

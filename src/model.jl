@@ -24,6 +24,8 @@ function build_model!(dtr::DieterModel,
 
     dtr.sets[:Hours] = Hours
 
+    cost_scaling = dtr.settings[:cost_scaling]
+
     H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
 
     # Set definitions
@@ -221,7 +223,7 @@ function build_model!(dtr::DieterModel,
 
     @info "Objective function."
     @constraint(m, ObjectiveFunction,
-            (sum(MarginalCost[n,t] * G[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
+cost_scaling*(sum(MarginalCost[n,t] * G[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
 
             + LoadIncreaseCost[n,t] * sum(G_UP[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours2)
             + LoadDecreaseCost[n,t] * sum(G_DO[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
@@ -243,7 +245,7 @@ function build_model!(dtr::DieterModel,
             )
 
         +
-            (sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
+cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(InvestmentCostPower[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages)
             + sum(InvestmentCostEnergy[n,sto] * N_STO_E[(n,sto)] for (n,sto) in Nodes_Storages)
 
