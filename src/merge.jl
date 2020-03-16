@@ -92,7 +92,7 @@ function need_to_merge(rdir::AbstractString; singledir::AbstractString="single_r
     return false
 end
 
-const COLS = [:nthhour, :scen, :min_res, :ev, :heat, :h2]
+const COLS = [:timestep, :scen, :min_res, :ev, :heat, :h2]
 
 function create_generation_summary(rdir::AbstractString)
 

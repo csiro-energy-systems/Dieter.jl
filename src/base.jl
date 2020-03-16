@@ -174,6 +174,18 @@ function parse_base_technologies!(dtr::DieterModel, df::DataFrame)
     params = map_idcol(df, [:Region, :Technologies], skip_cols=Symbol[])
     merge!(dtr.parameters, params)
 
+    # If a column of parameters is entirely missing, convert container to a Union type.
+    # Otherwise, we get a parameter Dict of type Dict{Tuple{R,T},Missing} :
+    DefaultType = Float64 # default type to contain general parameters
+    R = typeof(df[1,:Region])
+    T = typeof(df[1,:Technologies])
+
+    for (k,v) in dtr.parameters
+        if typeof(v) <: Dict{Tuple{R,T},Missing}
+            dtr.parameters[k] = convert(Dict{Tuple{R,T},Union{DefaultType,Missing}},v)
+        end
+    end
+
     return nothing
 end
 
@@ -183,7 +195,18 @@ function parse_storages!(dtr::DieterModel, df::DataFrame)
     dtr.sets[:Storages] = disallowmissing(unique(df[!,:Storages]))
 
     params = map_idcol(df, [:Region, :Storages], skip_cols=Symbol[])
-    for (k,v) in params update_dict!(dtr.parameters, k, v) end
+    for (k,v) in params
+        try
+            update_dict!(dtr.parameters, k, v)
+        catch e
+            print(e)
+            error(
+                "Update failed: dtr.parameters[$k] is type
+                    $(typeof(dtr.parameters[k])) \n while new parameter values are of type
+                    $(typeof(v))."
+            )
+        end
+    end
 
     return nothing
 end

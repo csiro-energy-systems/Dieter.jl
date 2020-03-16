@@ -29,7 +29,7 @@ function parse_file(file::String; dataname::String="")
         end
         db = SQLite.DB(dataname)
         queryString = read(file, String)
-        df = SQLite.Query(db,queryString) |> DataFrame
+        df = DBInterface.execute(db,queryString) |> DataFrame
     else
         error("Unrecognised filetype (as parsed from the file extension).")
     end
@@ -74,7 +74,7 @@ function create_relation(df::DataFrame,First::Symbol,Second::Symbol,
 end
 
 "Update a data Dict, merging the data if present, adding data if not present"
-function update_dict!(dict::Dict{Symbol,Any}, key, val::Dict)
+function update_dict!(dict::Dict{Symbol,Dict}, key::Symbol, val::Dict)
     # if !isa(val,Dict)
         # @warn "This function expects the value $val to be of type Dict"
     # end
@@ -271,7 +271,7 @@ Create a dictionary from an array in table form, where the table `tab` has:
  - key-index or indices given in the `keycol` array (integer column position), and
  - the column names for data appear in the first row.
 """
-function tableToDict(tab::Array{Any,2}; keycols::Array{Int64,1}=[1])
+function tableToDict(tab::Array{<:Any,2}; keycols::Array{Int64,1}=[1])
     DataDict = Dict{Union{String,Tuple{String,Vararg{String}}},Any}() # initialise the dictionary that the function returns
 
     KeysName    = tab[1,keycols]      # the column label on the key column

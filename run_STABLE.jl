@@ -12,6 +12,7 @@ import CPLEX
 
 using DataFrames
 using DataFramesMeta
+import DBInterface
 import SQLite
 import CSV
 import TimeSeries
@@ -40,7 +41,7 @@ scen_settings[:ev] = missing
 scen_settings[:heat] = missing
 scen_settings[:h2] = missing
 
-# Hourly timestep: 2, Half-hourly timestep: 1
+# Half-hourly: timestep=1, Hourly: timestep=2,
 # If timestep = 2, we obtain an hourly approximation of half-hour data by sampling on every second data point.
 scen_settings[:timestep] = 2
 timestep = scen_settings[:timestep]
@@ -122,6 +123,13 @@ dfDict["tech"] = @byrow! dfDict["tech"] if :TechType .== "Hydro"; :Dispatchable 
 # Add a Carbon Content column with zero values
 insertcols!(dfDict["tech"], size(dfDict["tech"])[2], CarbonContent=zeros(size(dfDict["tech"])[1]))
 
+# Turn a missing ExisitingCapacity value into a 0 value:
+# alt: @linq dfDict["tech"] |> where(:Status .== NewEntrant)
+dfDict["tech"] = @byrow! dfDict["tech"] if :ExistingCapacity |> ismissing; :ExistingCapacity = 0 end
+# dropmissing!(dfDict["tech"],:ExistingCapacity)
+dfDict["storage"] = @byrow! dfDict["storage"] if :ExistingCapacity |> ismissing; :ExistingCapacity = 0 end
+# dropmissing!(dfDict["storage"],:ExistingCapacity)
+
 # %% Parse data into model structure:
 
 parse_base_technologies!(dtr, dfDict["tech"])
@@ -195,7 +203,7 @@ dtr.parameters[:Peaks] = Peaks
 dfDict["avail"] = DataFrame()
 
 # Read data to a `Dict`ionary that creates an assignment of trace names:
-sqlquery_rez_trace = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM REZ_Trace_Map"; stricttypes=false);
+sqlquery_rez_trace = DBInterface.execute(SQLite.DB(sql_db_path), "SELECT * FROM REZ_Trace_Map") #; stricttypes=false
 trace_corr = Dieter.SQLqueryToDict(sqlquery_rez_trace)
 
 wind_traces_path = joinpath(trace_read_path,"REZ_Wind_Traces_RefYear$(Reference_Year)_FYE$(Trace_Year).csv")
@@ -294,8 +302,8 @@ for (k,v) in params_rzb Dieter.update_dict!(dtr.parameters, k, v) end
 # solver = JuMP.with_optimizer(Gurobi.Optimizer)
 # solver = JuMP.with_optimizer(CPLEX.Optimizer)
 solver = CPLEX.Optimizer
-# build_model!(dtr,solver; nthhour=-1)
-build_model!(dtr,solver)
+# build_model!(dtr,solver; timestep=-1)
+build_model!(dtr,solver,timestep=timestep)
 
 # %% Fix necessary variables for this scenario:
 
@@ -309,7 +317,8 @@ STO_IN = dtr.model.obj_dict[:STO_IN]
 
 MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio]
 
-ExistingCapDict = filter(x -> !ismissing(x.second), dtr.parameters[:ExistingCapacity])
+ExistingCapDict = filter(x -> x.second > 0, dtr.parameters[:ExistingCapacity])
+# ExistingCapDict = filter(x -> !ismissing(x.second), dtr.parameters[:ExistingCapacity])
 
 Coal_ExistingCapDict = Dict([x for x in par[:ExistingCapacity]
       if x.first in keys(dvalmatch(par[:FuelType],r"Coal")) && par[:Status][x.first] == "GenericExisting"])

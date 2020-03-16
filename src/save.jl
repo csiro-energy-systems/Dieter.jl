@@ -20,7 +20,7 @@ function add_info!(dtr::DieterModel)
     r = dtr.results
 
     for (k,df) in r
-        for s in [:min_res, :ev, :heat, :h2, :nthhour, :scen]
+        for s in [:min_res, :ev, :heat, :h2, :timestep, :scen]
             if !(dtr.settings[s] |> ismissing)
                 df[!,s] .= dtr.settings[s]
             else
@@ -55,10 +55,10 @@ function save_results(dtr::DieterModel, rdir::AbstractString; singledir::Abstrac
     ev = coalesce(dtr.settings[:ev],"NUL")
     heat = coalesce(dtr.settings[:heat],"NUL")
     h2 = coalesce(dtr.settings[:h2],"NUL")
-    nthhour = dtr.settings[:nthhour]
+    timestep = dtr.settings[:timestep]
 
-    fn  = "-scen_$(scen)-res_$(min_res)%-ev_$(ev)-heat_$(heat)%-h2_$(h2)twh-nthhour_$(nthhour).csv"
-    fn2 = "-scen_$(scen)-res_$(min_res)%-ev_$(ev)-heat_$(heat)%-h2_$(h2)twh-nthhour_$(nthhour).feather"
+    fn  = "-scen_$(scen)-res_$(min_res)%-ev_$(ev)-heat_$(heat)%-h2_$(h2)twh-timestep_$(timestep).csv"
+    fn2 = "-scen_$(scen)-res_$(min_res)%-ev_$(ev)-heat_$(heat)%-h2_$(h2)twh-timestep_$(timestep).feather"
 
     create_folder(rdir)
     srdir = create_folder(joinpath(rdir,singledir))

@@ -5,16 +5,16 @@
 
 """
 Build the JuMP model describing the optimization problem, specifying the `solver` to use.
-The `nthhour` parameter should be 0 for hourly steps, 1 for 2-hourly steps and
--1 for half-hourly steps. The data must match the time-steps of the `nthhour` parameter.
+The `timestep` parameter should be 1 for half-hourly steps, 2 for hourly steps,
+and 4 for 2-hourly steps. The data must match the time-steps of the `timestep` parameter.
 """
 function build_model!(dtr::DieterModel,
     solver; #::MathOptInterface.AbstractOptimizer;
-    nthhour::Int=0)
+    timestep::Int=2)
 
-    dtr.settings[:nthhour] = nthhour
+    dtr.settings[:timestep] = timestep
 
-    periods = round(Int,hoursInYear*2.0^(-nthhour))
+    periods = round(Int,hoursInYear*(2/timestep))
     Hours = Base.OneTo(periods)
     Hours2 = Hours[2:end]
     # time_ratio relates generation levels in one time-step (e.g 1/2-hourly) to energy in MWh on an hourly basis
@@ -266,7 +266,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     next!(prog)
-    @info "\n"
+    println("\n")
 
 # %% * ----------------------------------------------------------------------- *
 #    ***** Energy balance and load levels *****
@@ -349,6 +349,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     next!(prog)
+    println("\n")
 
     # Variable upper bound on dispatchable generation by capacity
     @info "Variable upper bound on dispatchable generation by capacity."
@@ -389,6 +390,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     next!(prog)
+    println("\n")
 
 # %% * ----------------------------------------------------------------------- *
 #    ***** Operational conditions and constraints *****
@@ -418,6 +420,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     next!(prog)
+    println("\n")
 =#
 # %% * ----------------------------------------------------------------------- *
 #    ***** Quotas for renewable technologies *****
@@ -538,6 +541,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     next!(prog)
+    println("\n")
 
     @info "Electric Vehicles: electric charge allowable."
     @constraint(m, MaxWithdrawEV[ev=EV,h=Hours],
@@ -579,6 +583,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     next!(prog)
+    println("\n")
 
     @constraint(m, MaxP2G[p2g=P2G,h=Hours],
         H2_P2G[p2g,h] <= time_ratio * N_P2G[p2g]
@@ -620,11 +625,12 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     next!(prog)
+    println("\n")
 
     @constraint(m, HeatBalance[bu=BU, hp=HP, h=Hours2],
         HEAT_STO_L[bu,hp,h]
         ==
-        StaticEfficiency[hp] * HEAT_STO_L[bu,hp,h-1]  # h-nthhour replaced with h-1
+        StaticEfficiency[hp] * HEAT_STO_L[bu,hp,h-1]  # h-timestep replaced with h-1
         + CoP[bu,hp][h] * HEAT_HP_IN[bu,hp,h]
         - HeatConsumption[bu,hp][h]
         + HEAT_INF[bu,hp,h]
@@ -649,6 +655,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     next!(prog)
+
 
     dtr.model = m
 

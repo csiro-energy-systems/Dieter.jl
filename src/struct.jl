@@ -59,7 +59,7 @@ function InitialiseDieterModel(ModelType::Type, data::Dict{String,T} where T;
         # initialise data structures for the model
 
         sets = Dict{Symbol, Array{Any,1}}()
-        parameters = Dict{Symbol, Any}()
+        parameters = Dict{Symbol, Dict}()
 
         # initialise settings
 
