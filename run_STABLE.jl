@@ -34,7 +34,7 @@ scen_settings =Dict{Symbol,Any}()
 
 scen_settings[:scen] = run_timestamp*"-Testing"
 scen_settings[:interest] = 0.06
-scen_settings[:cost_scaling] = 1.0e-6
+scen_settings[:cost_scaling] = 1 # 1.0e-6
 # Modify the :min_res setting over [0,100] and rerun to see comparison.
 scen_settings[:min_res] = 10
 scen_settings[:ev] = missing
@@ -102,7 +102,46 @@ dfDict["tech"] = parse_file(fileDict["tech"]; dataname=dataname)
 # e.g. fileDict["storage"] = joinpath(datapath,"base","storages.csv")
 dfDict["storage"] = parse_file(fileDict["storage"]; dataname=dataname)
 
+# %% Relations (i.e set-to-set correspondences)
+dfDict["map_node_demand"] = parse_file(fileDict["map_node_demand"]; dataname=dataname)
+dfDict["map_node_tech"] = parse_file(fileDict["map_node_tech"]; dataname=dataname)
+dfDict["map_node_storages"] = parse_file(fileDict["map_node_storages"]; dataname=dataname)
+dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
+
+# %% Additional parameters
+
+# # Minimum stable generation levels:
+fileDict["min_stable_gen"] = joinpath(datapath,"base","min_stable_gen.sql")
+dfDict["min_stable_gen"] = parse_file(fileDict["min_stable_gen"]; dataname=dataname)
+
+params_msg = Dieter.map_idcol(dfDict["min_stable_gen"], [:Region, :Technologies], skip_cols=Symbol[])
+for (k,v) in params_msg Dieter.update_dict!(dtr.parameters, k, v) end
+
+# # REZ build parameters and bounds
+fileDict["rez_build"] = joinpath(datapath,"base","rez_build.sql")
+dfDict["rez_build"] = parse_file(fileDict["rez_build"]; dataname=dataname)
+
+params_rzb = Dieter.map_idcol(dfDict["rez_build"], [:Region], skip_cols=Symbol[])
+for (k,v) in params_rzb Dieter.update_dict!(dtr.parameters, k, v) end
+
+# # RE Zone connections parameters and bounds
+fileDict["rez_connect"] = joinpath(datapath,"base","rez_connect.sql")
+dfDict["rez_connect"] = parse_file(fileDict["rez_connect"]; dataname=dataname)
+
+params_rzc = Dieter.map_idcol(dfDict["rez_connect"], [:Region, :Technologies], skip_cols=Symbol[])
+for (k,v) in params_rzc Dieter.update_dict!(dtr.parameters, k, v) end
+
+# # Transmission Zone connections parameters and bounds
+fileDict["TxZ_connect"] = joinpath(datapath,"base","TxZ_connect.sql")
+dfDict["TxZ_connect"] = parse_file(fileDict["TxZ_connect"]; dataname=dataname)
+
+params_txc = Dieter.map_idcol(dfDict["TxZ_connect"], [:Region, :Technologies], skip_cols=Symbol[])
+for (k,v) in params_txc Dieter.update_dict!(dtr.parameters, k, v) end
+
 # %% Modify data in-frame:
+
+# Relation to determine which (Nodes,Technologies) pairs are included in the model:
+rel_node_tech = create_relation(dfDict["map_node_tech"],:Nodes,:Technologies,:IncludeFlag)
 
 # Existing capacity
 # sqlquery_exi_cap = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM Existing_Cap"; stricttypes=false);
@@ -112,6 +151,18 @@ dfDict["storage"] = parse_file(fileDict["storage"]; dataname=dataname)
 dfDict["tech"] = @byrow! dfDict["tech"] if :Status == "GenericExisting"; :OvernightCostPower = 0 end
 dfDict["storage"] = @byrow! dfDict["storage"] if :Status == "GenericExisting"; :OvernightCostPower = 0 end
 dfDict["storage"] = @byrow! dfDict["storage"] if :Status == "GenericExisting"; :OvernightCostEnergy = 0 end
+
+ConnectCost = dtr.parameters[:ConnectCost]
+
+# Add connection costs specific to regions to the capital cost of plants:
+a = @byrow! dfDict["tech"] begin
+      @newcol IncCost::Array{Float64}
+      if :Status == "NewEntrant" && rel_node_tech(:Region,:Technologies) == true
+            :IncCost = :OvernightCostPower + ConnectCost[(:Region,:Technologies)]
+      else
+            :IncCost = :OvernightCostPower
+      end
+end
 
 # Make Hydro (Hydro Gravity and Run of River) plants Dispatchable
 dfDict["tech"] = @byrow! dfDict["tech"] if :TechType .== "Hydro"; :Dispatchable = 1 end
@@ -136,12 +187,6 @@ parse_base_technologies!(dtr, dfDict["tech"])
 # parse_base_technologies!(dtr, dfDict["tech"])
 
 parse_storages!(dtr, dfDict["storage"])
-
-# %% Relations (i.e set-to-set correspondences)
-dfDict["map_node_demand"] = parse_file(fileDict["map_node_demand"]; dataname=dataname)
-dfDict["map_node_tech"] = parse_file(fileDict["map_node_tech"]; dataname=dataname)
-dfDict["map_node_storages"] = parse_file(fileDict["map_node_storages"]; dataname=dataname)
-dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
 
 # %% Create relational sets
 
@@ -278,22 +323,6 @@ calc_base_parameters!(dtr)
 # %% Extensions
 Dieter.parse_extensions!(dtr,dataname=sql_db_path)
 
-# %% Additional parameters
-
-# # Minimum stable generation levels:
-fileDict["min_stable_gen"] = joinpath(datapath,"base","min_stable_gen.sql")
-
-dfDict["min_stable_gen"] = parse_file(fileDict["min_stable_gen"]; dataname=dataname)
-
-params_msg = Dieter.map_idcol(dfDict["min_stable_gen"], [:Region, :Technologies], skip_cols=Symbol[])
-for (k,v) in params_msg Dieter.update_dict!(dtr.parameters, k, v) end
-
-# # REZ build parameters and bounds
-fileDict["rez_build"] = joinpath(datapath,"base","rez_build.sql")
-dfDict["rez_build"] = parse_file(fileDict["rez_build"]; dataname=dataname)
-
-params_rzb = Dieter.map_idcol(dfDict["rez_build"], [:Nodes], skip_cols=Symbol[])
-for (k,v) in params_rzb Dieter.update_dict!(dtr.parameters, k, v) end
 
 # %% Initialise model
 
