@@ -715,7 +715,9 @@ function generate_results!(dtr::DieterModel)
     model_dict = m.obj_dict
 
     dtr.results = Dict(v[1] =>
-        convert_jump_container_to_df(model_dict[v[1]], dim_names=convert(Vector{Symbol},v[2])) for v in vars)
+        convert_jump_container_to_df(model_dict[v[1]],
+            dim_names=convert(Vector{Symbol},v[2])) for v in vars)
+            # value_col=v[1])
     # dtr.results = [convert_jump_container_to_df(value.(model_dict[v[1]]), dim_names=v[2]) for v in vars]
 
     # if abs(sum(dtr.results[:G_INF][!, :Value]))  > (1e-5) ||
@@ -724,5 +726,5 @@ function generate_results!(dtr::DieterModel)
     #       @warn "Problem might be infeasable"
     # end
 
-    return nothing
+    return vars
 end

@@ -155,12 +155,12 @@ dfDict["storage"] = @byrow! dfDict["storage"] if :Status == "GenericExisting"; :
 ConnectCost = dtr.parameters[:ConnectCost]
 
 # Add connection costs specific to regions to the capital cost of plants:
-a = @byrow! dfDict["tech"] begin
-      @newcol IncCost::Array{Float64}
+dfDict["tech"] = @byrow! dfDict["tech"] begin
+      # @newcol IncCost::Array{Float64}
       if :Status == "NewEntrant" && rel_node_tech(:Region,:Technologies) == true
-            :IncCost = :OvernightCostPower + ConnectCost[(:Region,:Technologies)]
-      else
-            :IncCost = :OvernightCostPower
+            :OvernightCostPower = :OvernightCostPower + ConnectCost[(:Region,:Technologies)]
+      # else
+            # :IncCost = :OvernightCostPower
       end
 end
 
@@ -339,6 +339,7 @@ build_model!(dtr,solver,timestep=timestep)
 sets = dtr.sets
 par = dtr.parameters
 
+G = dtr.model.obj_dict[:G]
 N_TECH = dtr.model.obj_dict[:N_TECH]
 N_STO_P = dtr.model.obj_dict[:N_STO_P]
 N_STO_E = dtr.model.obj_dict[:N_STO_E]
@@ -374,6 +375,36 @@ end
 for (n,sto) in dtr.sets[:Nodes_Storages]
       JuMP.fix(STO_IN[(n,sto),1],0; force=true)
 end
+
+# # Hydro reservoir constraints:
+
+inflows_table = CSV.read(joinpath(trace_read_path,"HydroInflows.csv"))
+inflows = stack(inflows_table, variable_name=:Month)
+
+HydroInflow = Dict{Tuple{String,Int64},Float64}()
+for (sch,mth,v) in eachrow(inflows[!,[:Scheme,:Month,:value]])
+      HydroInflow[sch,parse(Int,String(mth))] = 1000*v  # NOTE: Conversion from GWh to MWh!
+end
+
+# Create a correspondence of Hours to the month of the year.
+Hours = dtr.sets[:Hours]
+HtoM = Dict(eachrow(CSV.read(joinpath(trace_read_path,"HoursToMonths.csv"))));
+dtr.parameters[:HtoM] = HtoM
+
+SchemeToRegion = Dict{String,Vector{Tuple{String,String}}}()
+
+Schemes = ["Snowy","Tasmania","FarNorthQLD","OvensMurray"]
+
+SchemeToRegion["Snowy"] = [("N8", "Hydro_Exi")]
+SchemeToRegion["Tasmania"] = [("T2", "Hydro_Exi"),("T3", "Hydro_Exi")]
+SchemeToRegion["FarNorthQLD"] = [("Q1", "Hydro_Exi")]
+SchemeToRegion["OvensMurray"] = [("V1", "Hydro_Exi")]
+
+@constraint(dtr.model, HydroInflowsLimit[sch=Schemes, month=1:12],
+      sum(G[(z,t),h] for (z,t) in SchemeToRegion[sch]
+                     for h in Hours if HtoM[h] == month)
+            <= HydroInflow[sch,month]
+);
 
 # Set an upper bound on each technology as a certain fraction `peak_factor` of the peak demand
 # df_tech = dfDict["tech"][!,[:Technologies, :Status]] |> dropmissing
@@ -411,7 +442,7 @@ JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_BAREPCOMP", 1e-6)   # Sets th
 
 # %% Solve the model and generate results
 solve_model!(dtr)
-generate_results!(dtr)
+resultsIndex = generate_results!(dtr)
 
 sets = dtr.sets
 mod = dtr.model

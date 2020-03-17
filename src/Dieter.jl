@@ -1,6 +1,7 @@
 module Dieter
 
 # %%
+import Dates
 # using Reexport
 using DataFrames
 using DataFramesMeta
@@ -97,4 +98,4 @@ for status_code_enum in [TerminationStatusCode, ResultStatusCode]
     end
 end
 
-end # module
+end # module Dieter
