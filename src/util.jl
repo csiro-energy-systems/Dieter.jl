@@ -1,13 +1,5 @@
 # This file is part of Dieter: Utility functions
 
-function remove_all_empty!(dict::Dict)
-    for (k,v) in dict
-        if isempty(v)
-            delete!(dict,k)
-        end
-    end
-end
-
 "Given a Dict of keys => filenames, check at files exist"
 function check_files_exist(fileDict::Dict{String,String})
     for (k,v) in fileDict

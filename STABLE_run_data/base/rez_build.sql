@@ -1,6 +1,7 @@
 SELECT
 REZ_Build.RezID AS Region,
-WindLimit,
+WindLimitOnshore,
+WindLimitOffshore,
 SolarLimit,
 TotalBuildCap,
 ExpansionLimit,

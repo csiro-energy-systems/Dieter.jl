@@ -152,6 +152,12 @@ dfDict["tech"] = @byrow! dfDict["tech"] if :Status == "GenericExisting"; :Overni
 dfDict["storage"] = @byrow! dfDict["storage"] if :Status == "GenericExisting"; :OvernightCostPower = 0 end
 dfDict["storage"] = @byrow! dfDict["storage"] if :Status == "GenericExisting"; :OvernightCostEnergy = 0 end
 
+dfDict["storage"] = @byrow! dfDict["storage"] begin
+      if :Storages == "BattInvWind_Exi" && :Region == "NSA"
+             :MaxEnergyToPowerRatio = 1.0
+      end
+end
+
 ConnectCost = dtr.parameters[:ConnectCost]
 
 # Add connection costs specific to regions to the capital cost of plants:
@@ -378,7 +384,7 @@ end
 
 # # Hydro reservoir constraints:
 
-inflows_table = CSV.read(joinpath(trace_read_path,"HydroInflows.csv"))
+inflows_table = CSV.read(joinpath(trace_read_path,"HydroInflowsGWh.csv"))
 inflows = stack(inflows_table, variable_name=:Month)
 
 HydroInflow = Dict{Tuple{String,Int64},Float64}()
@@ -441,6 +447,7 @@ JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_LPMETHOD", 6)       #  0: aut
 JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_BAREPCOMP", 1e-6)   # Sets the tolerance on complementarity for convergence; default: 1e-8.
 
 # %% Solve the model and generate results
+println(dtr.settings)
 solve_model!(dtr)
 resultsIndex = generate_results!(dtr)
 
