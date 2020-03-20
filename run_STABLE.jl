@@ -110,6 +110,20 @@ dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
 
 # %% Additional parameters
 
+# # New capital / overnight costs
+fileDict["capital_costs"] = joinpath(datapath,"base","capital_costs.sql")
+dfDict["capital_costs"] = parse_file(fileDict["capital_costs"]; dataname=dataname)
+
+params_capcost = Dieter.map_idcol(dfDict["capital_costs"], [:Technologies, :Scenario], skip_cols=Symbol[])
+for (k,v) in params_capcost Dieter.update_dict!(dtr.parameters, k, v) end
+
+fileDict["cost_energy_storage"] = joinpath(datapath,"base","cost_energy_storage.sql")
+dfDict["cost_energy_storage"] = parse_file(fileDict["cost_energy_storage"]; dataname=dataname)
+
+params_costES = Dieter.map_idcol(dfDict["cost_energy_storage"], [:Technologies, :Scenario], skip_cols=Symbol[])
+for (k,v) in params_costES Dieter.update_dict!(dtr.parameters, k, v) end
+
+
 # # Minimum stable generation levels:
 fileDict["min_stable_gen"] = joinpath(datapath,"base","min_stable_gen.sql")
 dfDict["min_stable_gen"] = parse_file(fileDict["min_stable_gen"]; dataname=dataname)
@@ -186,6 +200,22 @@ dfDict["tech"] = @byrow! dfDict["tech"] if :ExistingCapacity |> ismissing; :Exis
 # dropmissing!(dfDict["tech"],:ExistingCapacity)
 dfDict["storage"] = @byrow! dfDict["storage"] if :ExistingCapacity |> ismissing; :ExistingCapacity = 0 end
 # dropmissing!(dfDict["storage"],:ExistingCapacity)
+
+dfExistingCap = @linq dfDict["tech"] |>
+                  select(:Region, :Technologies, :TechType, :ExistingCapacity) |>
+                  where(:ExistingCapacity .> 0)
+
+# Modify (if necessary) upper bound on REZones that incorporates existing capacity:
+TotalBuildCap = dtr.parameters[:TotalBuildCap]
+for rez in keys(TotalBuildCap)
+      existing_rez_capacity = @where(dfExistingCap, :Region .== rez, :TechType .!== "Hydro")
+      rez_sum = sum(existing_rez_capacity[!,:ExistingCapacity])
+      new_rez_bound = max(TotalBuildCap[rez],rez_sum)
+      if TotalBuildCap[rez] !== new_rez_bound
+            @info "TotalBuildCap parameter overwritten for REZone $(rez)."
+      end
+      TotalBuildCap[rez] = new_rez_bound
+end
 
 # %% Parse data into model structure:
 
@@ -350,6 +380,12 @@ N_TECH = dtr.model.obj_dict[:N_TECH]
 N_STO_P = dtr.model.obj_dict[:N_STO_P]
 N_STO_E = dtr.model.obj_dict[:N_STO_E]
 STO_IN = dtr.model.obj_dict[:STO_IN]
+N_RES_EXP = dtr.model.obj_dict[:N_RES_EXP]
+
+NoExpansionREZones = keys(filter(x -> ismissing(x[2]), dtr.parameters[:TransExpansionCost]))
+for rez in NoExpansionREZones
+      JuMP.fix(N_RES_EXP[rez], 0; force=true)
+end
 
 MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio]
 

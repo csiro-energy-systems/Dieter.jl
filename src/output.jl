@@ -22,7 +22,7 @@ elseif Base.Sys.iswindows()
       resultsdir = joinpath("F:\\STABLE\\","results_STABLE")
 end
 
-run_timestamp = "2020-03-18-H2"
+# run_timestamp = "2020-03-18-H2"
 results_filename = run_timestamp*"-results-Julia_Serial.dat"
 results_read_filename = joinpath(resultsdir,results_filename)
 #
