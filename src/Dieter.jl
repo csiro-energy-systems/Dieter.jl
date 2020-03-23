@@ -1,7 +1,6 @@
 module Dieter
 
 # %%
-import Dates
 # using Reexport
 using DataFrames
 using DataFramesMeta

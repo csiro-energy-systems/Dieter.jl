@@ -191,8 +191,8 @@ end
 
 for (ks, vs) in DR_augmentIndex
     # Add the DemandRegion column
-    # DR_map!(resSplit[ks],vs)
-    # Male the new column the first
+    DR_map!(resSplit[ks],vs)
+    # Make the new column the first
     L = ncol(resSplit[ks])
     resSplit[ks] = select(resSplit[ks],[L,1:(L-1)...])
 end
@@ -226,7 +226,8 @@ end
 
 # Write capacity data and create place-holders for larger datasets:
 XLSX.openxlsx(xlsx_output_file, mode="w") do xf
-    XLSX.rename!(xf[1],"CAPACITY_GEN")
+    XLSX.rename!(xf[1],"OPDEMAND")
+    XLSX.addsheet!(xf,"CAPACITY_GEN")
         XLSX.writetable!(xf["CAPACITY_GEN"], prepare_df_xlsx(resSplit[:CAPACITY_GEN])...)
     XLSX.addsheet!(xf,"CAPACITY_STO")
         XLSX.writetable!(xf["CAPACITY_STO"], prepare_df_xlsx(resSplit[:CAPACITY_STO])...)

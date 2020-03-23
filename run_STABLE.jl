@@ -24,6 +24,16 @@ using Dates
 
 run_timestamp = "$(Date(Dates.now()))-H$(hour(now()))"
 
+ScenarioName = "Scen1_BAU"
+# ScenarioName = "Scen2_DDC"
+Scen_Map = Dict("Scen1_BAU" => "4deg", "Scen2_DDC" => "2deg")
+# Specfied Year for the scenario setting:
+ScenarioYear = 2030
+ScYr_Sym = Symbol("FYE$ScenarioYear")
+
+BattEnergyType = "N_BattEnergy"
+HydPumpEnergyType = "N_HydPumpEnergy"
+
 # Year parameters
 Demand_Year = 2019 # Financial year 2018-2019
 Reference_Year = Demand_Year # 2019  # Year of data set to use for renewable traces
@@ -32,7 +42,7 @@ Trace_Year = 2030 # Which year to use from the Reference_Year trace dataset
 # Technology
 scen_settings =Dict{Symbol,Any}()
 
-scen_settings[:scen] = run_timestamp*"-Testing"
+scen_settings[:scen] = run_timestamp*"-$(ScenarioName)-ScYr$(ScenarioYear)"
 scen_settings[:interest] = 0.06
 scen_settings[:cost_scaling] = 1 # 1.0e-6
 # Modify the :min_res setting over [0,100] and rerun to see comparison.
@@ -47,9 +57,9 @@ scen_settings[:timestep] = 2
 timestep = scen_settings[:timestep]
 
 # Set the scaling of existing coal
-scen_settings[:coal_adjust] = 0.5;
+scen_settings[:coal_adjust] = 1;
 # Set the maximum allowed contribution to peak demand by a single technology
-scen_settings[:peak_factor] = 2.5;
+# scen_settings[:peak_factor] = 2.5;
 # %% Data paths and connections
 
 # projectpath = joinpath(ENV["HOME"],"Documents/Projects/ESM/Dieter.jl/")
@@ -114,13 +124,30 @@ dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
 fileDict["capital_costs"] = joinpath(datapath,"base","capital_costs.sql")
 dfDict["capital_costs"] = parse_file(fileDict["capital_costs"]; dataname=dataname)
 
-params_capcost = Dieter.map_idcol(dfDict["capital_costs"], [:Technologies, :Scenario], skip_cols=Symbol[])
-for (k,v) in params_capcost Dieter.update_dict!(dtr.parameters, k, v) end
+# Rename the ScenarioYear column with ScenCostPower:
+df_cap_costs = DataFrames.rename!(
+      dfDict["capital_costs"][!,[:Technologies, :Scenario, ScYr_Sym]],
+      Dict(ScYr_Sym => :ScenCostPower)
+      )
+# Filter by the current Scenario:
+df_cap_costs = @linq df_cap_costs |> where(:Scenario .== Scen_Map[ScenarioName])
+
+params_cap_costs = Dieter.map_idcol(df_cap_costs, [:Technologies], skip_cols=Symbol[:Scenario])
+
+for (k,v) in params_cap_costs Dieter.update_dict!(dtr.parameters, k, v) end
 
 fileDict["cost_energy_storage"] = joinpath(datapath,"base","cost_energy_storage.sql")
 dfDict["cost_energy_storage"] = parse_file(fileDict["cost_energy_storage"]; dataname=dataname)
 
-params_costES = Dieter.map_idcol(dfDict["cost_energy_storage"], [:Technologies, :Scenario], skip_cols=Symbol[])
+# Rename the ScenarioYear column with ScenCostEnergy:
+df_costES = DataFrames.rename!(
+      dfDict["cost_energy_storage"][!,[:Technologies, :Scenario, ScYr_Sym]],
+      Dict(ScYr_Sym => :ScenCostEnergy)
+      )
+
+df_costES = @linq df_costES |> where(:Scenario .== Scen_Map[ScenarioName])
+
+params_costES = Dieter.map_idcol(df_costES, [:Technologies], skip_cols=Symbol[:Scenario])
 for (k,v) in params_costES Dieter.update_dict!(dtr.parameters, k, v) end
 
 
@@ -152,10 +179,28 @@ dfDict["TxZ_connect"] = parse_file(fileDict["TxZ_connect"]; dataname=dataname)
 params_txc = Dieter.map_idcol(dfDict["TxZ_connect"], [:Region, :Technologies], skip_cols=Symbol[])
 for (k,v) in params_txc Dieter.update_dict!(dtr.parameters, k, v) end
 
+# # Technology capacity overwrites by scenario:
+# This creates a parameter called CapacityPresent indexed by Region, Technologies,ScenarioYear and ScenarioName
+fileDict["tech_scenario"] = joinpath(datapath,"base","tech_scenario.Region, :Technologies,:ScenarioYear,:ScenarioNamesql")
+dfDict["tech_scenario"] = parse_file(fileDict["tech_scenario"]; dataname=dataname)
+
+for (k,v) in Dieter.map_idcol(
+            dfDict["tech_scenario"],
+            [:Region, :Technologies,:ScenarioYear,:ScenarioName],
+             skip_cols=Symbol[]
+            )
+      Dieter.update_dict!(dtr.parameters, k, v)
+end
+
+ScenCapacityDict = dtr.parameters[:CapacityPresent]
+OverwriteCapDict = Dict([(n,t) => ScenCapacityDict[n,t,y,sc]
+                        for (n,t,y,sc) in keys(ScenCapacityDict)
+                        if (y == ScenarioYear && sc == ScenarioName)])
 # %% Modify data in-frame:
 
 # Relation to determine which (Nodes,Technologies) pairs are included in the model:
 rel_node_tech = create_relation(dfDict["map_node_tech"],:Nodes,:Technologies,:IncludeFlag)
+rel_node_storages = create_relation(dfDict["map_node_storages"],:Nodes,:Technologies,:IncludeFlag)
 
 # Existing capacity
 # sqlquery_exi_cap = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM Existing_Cap"; stricttypes=false);
@@ -165,6 +210,29 @@ rel_node_tech = create_relation(dfDict["map_node_tech"],:Nodes,:Technologies,:In
 dfDict["tech"] = @byrow! dfDict["tech"] if :Status == "GenericExisting"; :OvernightCostPower = 0 end
 dfDict["storage"] = @byrow! dfDict["storage"] if :Status == "GenericExisting"; :OvernightCostPower = 0 end
 dfDict["storage"] = @byrow! dfDict["storage"] if :Status == "GenericExisting"; :OvernightCostEnergy = 0 end
+
+# Set the overnight cost of new capacity based on scenario:
+ScenCostPower = dtr.parameters[:ScenCostPower]
+dfDict["tech"] = @byrow! dfDict["tech"] begin
+       if :Status == "NewEntrant" && rel_node_tech(:Region,:Technologies) == true
+             :OvernightCostPower = ScenCostPower[:Technologies]
+       end
+       # if :Status == "NewEntrant" && rel_node_tech(:Region,:Technologies) == false
+       #       :OvernightCostPower = missing
+       # end
+ end
+
+BattEnergyCost = dtr.parameters[:ScenCostEnergy][BattEnergyType]
+HydPumpEnergyCost = dtr.parameters[:ScenCostEnergy][HydPumpEnergyType]
+dfDict["storage"] = @byrow! dfDict["storage"] begin
+       if :Status == "NewEntrant" && rel_node_storages(:Region,:Storages) == true
+            if occursin(r"Battery",:TechType)
+                 :OvernightCostEnergy = BattEnergyCost
+           elseif occursin(r"Pump Storage",:TechType)
+                 :OvernightCostEnergy = HydPumpEnergyCost
+           end
+       end
+ end
 
 dfDict["storage"] = @byrow! dfDict["storage"] begin
       if :Storages == "BattInvWind_Exi" && :Region == "NSA"
@@ -192,7 +260,9 @@ dfDict["tech"] = @byrow! dfDict["tech"] if :TechType .== "Hydro"; :Dispatchable 
 @linq dfDict["tech"] |> where(:TechType .== "Hydro") |> select(:Dispatchable)
 
 # Add a Carbon Content column with zero values
-insertcols!(dfDict["tech"], size(dfDict["tech"])[2], CarbonContent=zeros(size(dfDict["tech"])[1]))
+if !in(:CarbonContent, names(dfDict["tech"]))
+      insertcols!(dfDict["tech"], size(dfDict["tech"])[2], CarbonContent=zeros(size(dfDict["tech"])[1]))
+end
 
 # Turn a missing ExisitingCapacity value into a 0 value:
 # alt: @linq dfDict["tech"] |> where(:Status .== NewEntrant)
@@ -265,6 +335,7 @@ dfDict["load"] = @linq df_OpDem_stack |>
                   select(:TimeIndex,:DemandRegion,:Load)
 
 # %%
+# CSV.write(joinpath(resultsdir,"$(run_timestamp)-Load.csv"),dfDict["load"])
 parse_load!(dtr, dfDict["load"])
 
 # %% Calculate peak demand
@@ -392,19 +463,22 @@ MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio]
 ExistingCapDict = filter(x -> x.second > 0, dtr.parameters[:ExistingCapacity])
 # ExistingCapDict = filter(x -> !ismissing(x.second), dtr.parameters[:ExistingCapacity])
 
-Coal_ExistingCapDict = Dict([x for x in par[:ExistingCapacity]
-      if x.first in keys(dvalmatch(par[:FuelType],r"Coal")) && par[:Status][x.first] == "GenericExisting"])
+# Overwrite with any imposed scenario capacities read via "tech_scenario" files:
+FixCapDict = merge(ExistingCapDict,OverwriteCapDict)
 
 # # Fix the capacity of existing generation and storage technologies
-for (n,t) in keys(ExistingCapDict)
+for (n,t) in keys(FixCapDict)
       if (n,t) in dtr.sets[:Nodes_Techs]
-            JuMP.fix(N_TECH[(n,t)], ExistingCapDict[(n,t)]; force=true)
+            JuMP.fix(N_TECH[(n,t)], FixCapDict[(n,t)]; force=true)
       end
       if (n,t) in dtr.sets[:Nodes_Storages]
-            JuMP.fix(N_STO_P[(n,t)], ExistingCapDict[(n,t)] ; force=true)
-            JuMP.fix(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*ExistingCapDict[(n,t)]; force=true)
+            JuMP.fix(N_STO_P[(n,t)], FixCapDict[(n,t)] ; force=true)
+            JuMP.fix(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*FixCapDict[(n,t)]; force=true)
       end
 end
+
+Coal_ExistingCapDict = Dict([x for x in par[:ExistingCapacity]
+      if x.first in keys(dvalmatch(par[:FuelType],r"Coal")) && par[:Status][x.first] == "GenericExisting"])
 
 # # (Re)Fix the capacity of existing coal generation at a certain fraction `coal_adjust`
 for (n,t) in keys(Coal_ExistingCapDict)
