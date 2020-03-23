@@ -22,7 +22,7 @@ elseif Base.Sys.iswindows()
       resultsdir = joinpath("F:\\STABLE\\","results_STABLE")
 end
 
-# run_timestamp = "2020-03-18-H2"
+run_timestamp = scen_settings[:scen]
 results_filename = run_timestamp*"-results-Julia_Serial.dat"
 results_read_filename = joinpath(resultsdir,results_filename)
 #
@@ -31,7 +31,7 @@ results_read_filename = joinpath(resultsdir,results_filename)
 # resultsIndex = generate_results!(dtr)
 # res = dtr.results
 
-res = Serialization.deserialize(results_read_filename)
+# res = Serialization.deserialize(results_read_filename)
 
 xlsx_output_file = joinpath(resultsdir,"STABLE_summary-$(run_timestamp).xlsx")
 

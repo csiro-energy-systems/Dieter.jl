@@ -130,6 +130,8 @@ function build_model!(dtr::DieterModel,
     Efficiency = dtr.parameters[:Efficiency] # Units: [0,1]; Storage roundtrip efficiency
     StartLevel = dtr.parameters[:StartLevel] # Units: [0,1]; Initial storage level as fraction of storage energy installed
 
+    SynConCapCost = dtr.parameters[:SynConCapCost]
+
     MinStableGen = dtr.parameters[:MinStableGen] # Units: [0,1]; Minimum stable operational level for generation as fraction of Capacity in MW.
 
     # WindLimit = dtr.parameters[:WindLimit]
@@ -167,6 +169,7 @@ function build_model!(dtr::DieterModel,
                     "Renewable_capacity_expand" => "N_RES_EXP",
                     "Storage_build_energy" => "N_STO_E",
                     "Storage_capacity" => "N_STO_P",
+                    "SynCon_capacity" => "N_SYNC",
                     "Internodal_flow" => "FLOW",
                     "EV_charging" => "EV_CHARGE",
                     "EV_discharging" => "EV_DISCHARGE",
@@ -196,6 +199,7 @@ function build_model!(dtr::DieterModel,
             # N_RES[Nodes_Renew], (base_name=shorter["Renewable_capacity"], lower_bound=0) # Units: MW; Renewable technology capacity built
             N_STO_E[Nodes_Storages], (base_name=shorter["Storage_build_energy"], lower_bound=0) # Units: MWh; Storage energy technology built
             N_STO_P[Nodes_Storages], (base_name=shorter["Storage_capacity"], lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
+            N_SYNC[DemandRegions], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MWs; synchronous condenser capacity (in MW x seconds) for each demand region
             FLOW[Arcs,Hours], (base_name=shorter["Internodal_flow"]) # Units: MWh; Power flow between nodes in topology
             EV_CHARGE[EV, Hours], (base_name=shorter["EV_charging"], lower_bound=0) # Units: MWh per time-interval; Electric vehicle charge for vehicle profile in set EV
             EV_DISCHARGE[EV, Hours], (base_name=shorter["EV_discharging"], lower_bound=0) # Units: MWh per time-interval; Electric vehicle dischargw for vehicle profile in set EV
@@ -248,6 +252,8 @@ cost_scaling*(sum(MarginalCost[n,t] * G[(n,t),h] for (n,t) in Nodes_Dispatch, h 
 cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(InvestmentCostPower[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages)
             + sum(InvestmentCostEnergy[n,sto] * N_STO_E[(n,sto)] for (n,sto) in Nodes_Storages)
+
+            + SynConCapCost["SynConNew"] * sum(N_SYNC[dr] for dr in DemandRegions)
 
             + sum(FixedCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(FixedCost[n,sto] * 0.5*(N_STO_P[(n,sto)] + N_STO_E[(n,sto)]) for (n,sto) in Nodes_Storages)

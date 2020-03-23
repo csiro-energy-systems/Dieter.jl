@@ -73,7 +73,7 @@ elseif Base.Sys.iswindows()
       resultsdir = joinpath("F:\\STABLE\\","results_STABLE")
 end
 
-results_filename = run_timestamp*"-results-Julia_Serial.dat"
+results_filename = scen_settings[:scen]*"-results-Julia_Serial.dat"
 
 sql_db_path = joinpath(datapath_STABLE,"STABLE_run_data.db")
 dataname=sql_db_path
@@ -105,6 +105,10 @@ fileDict = dtr.data["files"]
 
 dfDict["nodes"] = parse_file(fileDict["nodes"]; dataname=dataname)
 parse_nodes!(dtr,dfDict["nodes"])
+
+df_nodes = dfDict["nodes"]
+node2DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
+
 
 # e.g. fileDict["tech"] = joinpath(datapath,"base","technologies.csv")
 dfDict["tech"] = parse_file(fileDict["tech"]; dataname=dataname)
@@ -150,7 +154,16 @@ df_costES = @linq df_costES |> where(:Scenario .== Scen_Map[ScenarioName])
 params_costES = Dieter.map_idcol(df_costES, [:Technologies], skip_cols=Symbol[:Scenario])
 for (k,v) in params_costES Dieter.update_dict!(dtr.parameters, k, v) end
 
+# Synchronous condenser with flywheel - cost in $ per inertial units of `MWs`
 
+SynConOvernightCost =  37727.0  # Units:  $/MWs
+LifetimeSynCon = 30
+i = dtr.settings[:interest]
+SynConCapCost = SynConOvernightCost*Dieter.annuity(i, LifetimeSynCon)
+dtr.parameters[:SynConCapCost] = Dict("SynConNew" => SynConCapCost)
+# SynCon_New_Cost =
+
+# %% Additional parameters
 # # Minimum stable generation levels:
 fileDict["min_stable_gen"] = joinpath(datapath,"base","min_stable_gen.sql")
 dfDict["min_stable_gen"] = parse_file(fileDict["min_stable_gen"]; dataname=dataname)
@@ -181,7 +194,7 @@ for (k,v) in params_txc Dieter.update_dict!(dtr.parameters, k, v) end
 
 # # Technology capacity overwrites by scenario:
 # This creates a parameter called CapacityPresent indexed by Region, Technologies,ScenarioYear and ScenarioName
-fileDict["tech_scenario"] = joinpath(datapath,"base","tech_scenario.Region, :Technologies,:ScenarioYear,:ScenarioNamesql")
+fileDict["tech_scenario"] = joinpath(datapath,"base","tech_scenario.sql")
 dfDict["tech_scenario"] = parse_file(fileDict["tech_scenario"]; dataname=dataname)
 
 for (k,v) in Dieter.map_idcol(
@@ -196,6 +209,7 @@ ScenCapacityDict = dtr.parameters[:CapacityPresent]
 OverwriteCapDict = Dict([(n,t) => ScenCapacityDict[n,t,y,sc]
                         for (n,t,y,sc) in keys(ScenCapacityDict)
                         if (y == ScenarioYear && sc == ScenarioName)])
+
 # %% Modify data in-frame:
 
 # Relation to determine which (Nodes,Technologies) pairs are included in the model:
@@ -441,7 +455,7 @@ solver = CPLEX.Optimizer
 # build_model!(dtr,solver; timestep=-1)
 build_model!(dtr,solver,timestep=timestep)
 
-# %% Fix necessary variables for this scenario:
+# %% Access model objects for further development:
 
 sets = dtr.sets
 par = dtr.parameters
@@ -452,6 +466,9 @@ N_STO_P = dtr.model.obj_dict[:N_STO_P]
 N_STO_E = dtr.model.obj_dict[:N_STO_E]
 STO_IN = dtr.model.obj_dict[:STO_IN]
 N_RES_EXP = dtr.model.obj_dict[:N_RES_EXP]
+N_SYNC = dtr.model.obj_dict[:N_SYNC]
+
+# %% Fix necessary variables for this scenario:
 
 NoExpansionREZones = keys(filter(x -> ismissing(x[2]), dtr.parameters[:TransExpansionCost]))
 for rez in NoExpansionREZones
@@ -492,7 +509,7 @@ for (n,sto) in dtr.sets[:Nodes_Storages]
       JuMP.fix(STO_IN[(n,sto),1],0; force=true)
 end
 
-# # Hydro reservoir constraints:
+# %% Hydro reservoir constraints:
 
 inflows_table = CSV.read(joinpath(trace_read_path,"HydroInflowsGWh.csv"))
 inflows = stack(inflows_table, variable_name=:Month)
@@ -521,6 +538,63 @@ SchemeToRegion["OvensMurray"] = [("V1", "Hydro_Exi")]
                      for h in Hours if HtoM[h] == month)
             <= HydroInflow[sch,month]
 );
+
+# %% Inertia -  data and constraints
+
+fileDict["inertia_tech"] = joinpath(datapath,"base","inertia_tech.sql")
+dfDict["inertia_tech"] = parse_file(fileDict["inertia_tech"]; dataname=dataname)
+
+for (k,v) in Dieter.map_idcol(
+            dfDict["inertia_tech"], [:Technologies], skip_cols=Symbol[])
+                  Dieter.update_dict!(dtr.parameters, k, v)
+end
+
+fileDict["inertia_require"] = joinpath(datapath,"base","inertia_require.sql")
+dfDict["inertia_require"] = parse_file(fileDict["inertia_require"]; dataname=dataname)
+
+for (k,v) in Dieter.map_idcol(
+            dfDict["inertia_require"], [:Region], skip_cols=Symbol[])
+                  Dieter.update_dict!(dtr.parameters, k, v)
+end
+
+# FYE2018 reference demand peaks:
+Peaks_BaseYear = Dict("QLD1" => 9383, "NSW1" => 14226,"VIC1" => 9886, "SA1" => 3181, "TAS1" => 1389)
+
+# SynCon_New_Cost = 37727.0  # $/MWs
+
+Nodes_Techs = dtr.sets[:Nodes_Techs]
+Nodes_Storages = dtr.sets[:Nodes_Storages]
+Nodes_Dispatch = dtr.sets[:Nodes_Dispatch]
+InertialSecs = dtr.parameters[:InertialCoeff]
+InertiaMinThreshold = dtr.parameters[:InertiaMinThreshold]
+InertiaMinSecure = dtr.parameters[:InertiaMinSecure]
+
+# Define a synchronous condenser capacity for each demand region:
+# @variable(dtr.model, N_SYNC[DemandRegions], lower_bound=0)
+
+# for dr in DemandRegions
+#       conref = constraint_by_name(dtr.model,"InertiaNormalThreshold[$(dr)]")
+#       if is_valid(dtr.model,conref)
+#             println(dr)
+#             # delete(dtr.model, constraint_by_name(dtr.model,"InertiaNormalThreshold[$(dr)]"))
+#       end
+# end
+@constraint(dtr.model,InertiaNormalThreshold[dr=DemandRegions],
+      N_SYNC[dr] +
+      sum(InertialSecs[t]*N_TECH[(n,t)]
+            for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
+            >= InertiaMinThreshold[dr]*Peaks[dr]/Peaks_BaseYear[dr]
+);
+
+@constraint(dtr.model,InertiaSecureRequirement[dr=DemandRegions],
+      N_SYNC[dr] +
+      sum(InertialSecs[t]*N_TECH[(n,t)]
+            for (n,t) in Nodes_Techs if node2DemReg[n] == dr)
+    + sum(InertialSecs[sto]*N_STO_P[(n,sto)]
+            for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
+            >= InertiaMinSecure[dr]*Peaks[dr]/Peaks_BaseYear[dr]
+);
+
 
 # Set an upper bound on each technology as a certain fraction `peak_factor` of the peak demand
 # df_tech = dfDict["tech"][!,[:Technologies, :Status]] |> dropmissing
