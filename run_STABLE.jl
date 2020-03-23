@@ -109,6 +109,7 @@ parse_nodes!(dtr,dfDict["nodes"])
 df_nodes = dfDict["nodes"]
 node2DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
 
+dtr.parameters[:node_demreg_map] = node2DemReg
 
 # e.g. fileDict["tech"] = joinpath(datapath,"base","technologies.csv")
 dfDict["tech"] = parse_file(fileDict["tech"]; dataname=dataname)
@@ -361,6 +362,51 @@ end
 
 dtr.parameters[:Peaks] = Peaks
 
+# %% Inertia -  data and constraints
+
+fileDict["inertia_tech"] = joinpath(datapath,"base","inertia_tech.sql")
+dfDict["inertia_tech"] = parse_file(fileDict["inertia_tech"]; dataname=dataname)
+
+for (k,v) in Dieter.map_idcol(
+            dfDict["inertia_tech"], [:Technologies], skip_cols=Symbol[])
+                  Dieter.update_dict!(dtr.parameters, k, v)
+end
+
+fileDict["inertia_require"] = joinpath(datapath,"base","inertia_require.sql")
+dfDict["inertia_require"] = parse_file(fileDict["inertia_require"]; dataname=dataname)
+
+for (k,v) in Dieter.map_idcol(
+            dfDict["inertia_require"], [:Region], skip_cols=Symbol[])
+                  Dieter.update_dict!(dtr.parameters, k, v)
+end
+
+# FYE2018 reference demand peaks:
+Peaks_BaseYear = Dict("QLD1" => 9383, "NSW1" => 14226,"VIC1" => 9886, "SA1" => 3181, "TAS1" => 1389)
+
+RequireRatio = Dict([dr => Peaks[dr]/Peaks_BaseYear[dr] for dr in DemandRegions])
+dtr.parameters[:RequireRatio] = RequireRatio
+# SynCon_New_Cost = 37727.0  # $/MWs
+
+# Nodes_Techs = dtr.sets[:Nodes_Techs]
+# Nodes_Storages = dtr.sets[:Nodes_Storages]
+# Nodes_Dispatch = dtr.sets[:Nodes_Dispatch]
+# dtr.parameters[:InertialCoeff] = InertialSecs
+# dtr.parameters[:InertiaMinThreshold] = InertiaMinThreshold
+# dtr.parameters[:InertiaMinSecure] = InertiaMinSecure
+
+# Define a synchronous condenser capacity for each demand region:
+# @variable(dtr.model, N_SYNC[DemandRegions], lower_bound=0)
+
+# for dr in DemandRegions
+#       conref = constraint_by_name(dtr.model,"InertiaNormalThreshold[$(dr)]")
+#       if is_valid(dtr.model,conref)
+#             println(dr)
+#             # delete(dtr.model, constraint_by_name(dtr.model,"InertiaNormalThreshold[$(dr)]"))
+#       end
+# end
+
+
+
 # %% Construct availability traces
 # Format of columns: TimeIndex, RenewRegionID, TechTypeID, Availability
 # e.g. fileDict["avail"] = joinpath(datapath,"base","availability.csv")
@@ -539,62 +585,6 @@ SchemeToRegion["OvensMurray"] = [("V1", "Hydro_Exi")]
             <= HydroInflow[sch,month]
 );
 
-# %% Inertia -  data and constraints
-
-fileDict["inertia_tech"] = joinpath(datapath,"base","inertia_tech.sql")
-dfDict["inertia_tech"] = parse_file(fileDict["inertia_tech"]; dataname=dataname)
-
-for (k,v) in Dieter.map_idcol(
-            dfDict["inertia_tech"], [:Technologies], skip_cols=Symbol[])
-                  Dieter.update_dict!(dtr.parameters, k, v)
-end
-
-fileDict["inertia_require"] = joinpath(datapath,"base","inertia_require.sql")
-dfDict["inertia_require"] = parse_file(fileDict["inertia_require"]; dataname=dataname)
-
-for (k,v) in Dieter.map_idcol(
-            dfDict["inertia_require"], [:Region], skip_cols=Symbol[])
-                  Dieter.update_dict!(dtr.parameters, k, v)
-end
-
-# FYE2018 reference demand peaks:
-Peaks_BaseYear = Dict("QLD1" => 9383, "NSW1" => 14226,"VIC1" => 9886, "SA1" => 3181, "TAS1" => 1389)
-
-# SynCon_New_Cost = 37727.0  # $/MWs
-
-Nodes_Techs = dtr.sets[:Nodes_Techs]
-Nodes_Storages = dtr.sets[:Nodes_Storages]
-Nodes_Dispatch = dtr.sets[:Nodes_Dispatch]
-InertialSecs = dtr.parameters[:InertialCoeff]
-InertiaMinThreshold = dtr.parameters[:InertiaMinThreshold]
-InertiaMinSecure = dtr.parameters[:InertiaMinSecure]
-
-# Define a synchronous condenser capacity for each demand region:
-# @variable(dtr.model, N_SYNC[DemandRegions], lower_bound=0)
-
-# for dr in DemandRegions
-#       conref = constraint_by_name(dtr.model,"InertiaNormalThreshold[$(dr)]")
-#       if is_valid(dtr.model,conref)
-#             println(dr)
-#             # delete(dtr.model, constraint_by_name(dtr.model,"InertiaNormalThreshold[$(dr)]"))
-#       end
-# end
-@constraint(dtr.model,InertiaNormalThreshold[dr=DemandRegions],
-      N_SYNC[dr] +
-      sum(InertialSecs[t]*N_TECH[(n,t)]
-            for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
-            >= InertiaMinThreshold[dr]*Peaks[dr]/Peaks_BaseYear[dr]
-);
-
-@constraint(dtr.model,InertiaSecureRequirement[dr=DemandRegions],
-      N_SYNC[dr] +
-      sum(InertialSecs[t]*N_TECH[(n,t)]
-            for (n,t) in Nodes_Techs if node2DemReg[n] == dr)
-    + sum(InertialSecs[sto]*N_STO_P[(n,sto)]
-            for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
-            >= InertiaMinSecure[dr]*Peaks[dr]/Peaks_BaseYear[dr]
-);
-
 
 # Set an upper bound on each technology as a certain fraction `peak_factor` of the peak demand
 # df_tech = dfDict["tech"][!,[:Technologies, :Status]] |> dropmissing
@@ -658,6 +648,8 @@ using Serialization
 # solved_dtr = copy(dtr)
 # solved_dtr.model = []
 Serialization.serialize(joinpath(resultsdir,results_filename), res)
+
+include("output.jl")
 
 # %% Merge results with other runs
 # # include("merge.jl")

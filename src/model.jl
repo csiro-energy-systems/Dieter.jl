@@ -41,6 +41,7 @@ function build_model!(dtr::DieterModel,
     Nodes = dtr.sets[:Nodes]
 
     DemandRegions = dtr.sets[:DemandRegions]
+    node2DemReg = dtr.parameters[:node_demreg_map]
 
     # Transformations on the minimum renewable share settings:
     min_res_dict = Dict{String,Float64}()
@@ -130,6 +131,10 @@ function build_model!(dtr::DieterModel,
     Efficiency = dtr.parameters[:Efficiency] # Units: [0,1]; Storage roundtrip efficiency
     StartLevel = dtr.parameters[:StartLevel] # Units: [0,1]; Initial storage level as fraction of storage energy installed
 
+    InertialSecs = dtr.parameters[:InertialCoeff]
+    InertiaMinThreshold = dtr.parameters[:InertiaMinThreshold]
+    InertiaMinSecure = dtr.parameters[:InertiaMinSecure]
+    RequireRatio = dtr.parameters[:RequireRatio]
     SynConCapCost = dtr.parameters[:SynConCapCost]
 
     MinStableGen = dtr.parameters[:MinStableGen] # Units: [0,1]; Minimum stable operational level for generation as fraction of Capacity in MW.
@@ -413,6 +418,24 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         # @constraint(m, MinStableGeneration[(n,t)=Nodes_Techs; !(MinStableGen[n,t] |> ismissing)],
             # sum(G[(n,t),h] for h in Hours) >= MinStableGen[n,t]*length(Hours) )
     end
+
+    @info "Minimum inertia threshold levels"
+    @constraint(m, InertiaNormalThreshold[dr=DemandRegions],
+          N_SYNC[dr] +
+          sum(InertialSecs[t]*N_TECH[(n,t)]
+                for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
+                >= InertiaMinThreshold[dr]*RequireRatio[dr]
+    );
+
+    @info "Secure inertia requirement levels"
+    @constraint(m, InertiaSecureRequirement[dr=DemandRegions],
+          N_SYNC[dr] +
+          sum(InertialSecs[t]*N_TECH[(n,t)]
+                for (n,t) in Nodes_Techs if node2DemReg[n] == dr)
+        + sum(InertialSecs[sto]*N_STO_P[(n,sto)]
+                for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
+                >= InertiaMinSecure[dr]*RequireRatio[dr]
+    );
 #=
     if !(isDictAllMissing(MaxRampRate))
         @info "Maximum ramp rates"
