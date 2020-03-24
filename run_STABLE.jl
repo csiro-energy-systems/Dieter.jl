@@ -31,7 +31,7 @@ Scen_Map = Dict("Scen1_BAU" => "4deg", "Scen2_DDC" => "2deg")
 ScenarioYear = 2030
 ScYr_Sym = Symbol("FYE$ScenarioYear")
 
-Note = "NoCO2"
+Note = "withCO2"
 
 BattEnergyType = "N_BattEnergy"
 HydPumpEnergyType = "N_HydPumpEnergy"
@@ -213,6 +213,29 @@ OverwriteCapDict = Dict([(n,t) => ScenCapacityDict[n,t,y,sc]
                         for (n,t,y,sc) in keys(ScenCapacityDict)
                         if (y == ScenarioYear && sc == ScenarioName)])
 
+# %% Carbon
+
+fileDict["carbon_price"] = joinpath(datapath,"base","carbon_price.sql")
+dfDict["carbon_price"] = parse_file(fileDict["carbon_price"]; dataname=dataname)
+
+Scen_co2 = @where(dfDict["carbon_price"], :ScenarioName .== ScenarioName, :ScenarioYear .== ScenarioYear)
+# Scen_co2[!, :CarbonPrice][1]
+dtr.settings[:co2] = Scen_co2[!,:CarbonPrice][1]
+
+# Add a Carbon Content column with zero values
+if !in(:CarbonContent, names(dfDict["tech"]))
+      insertcols!(dfDict["tech"], size(dfDict["tech"])[2], CarbonContent=zeros(size(dfDict["tech"])[1]))
+end
+
+fileDict["carbon_content"] = joinpath(datapath,"base","carbon_content.sql")
+dfDict["carbon_content"] = parse_file(fileDict["carbon_content"]; dataname=dataname)
+
+fueltype_cc_dict = Dieter.map_idcol(dfDict["carbon_content"], [:FuelType], skip_cols=Symbol[])
+fuel_to_cc_dict = fueltype_cc_dict[:CarbonContent]
+dfDict["tech"] = @byrow! dfDict["tech"] begin
+            :CarbonContent = fuel_to_cc_dict[:FuelType]
+      end
+
 # %% Modify data in-frame:
 
 # Relation to determine which (Nodes,Technologies) pairs are included in the model:
@@ -275,11 +298,6 @@ dfDict["tech"] = @byrow! dfDict["tech"] if :TechType .== "Hydro"; :Dispatchable 
 # dfDict["tech"] = @byrow! dfDict["tech"] if :Technologies == "Hydro_New"; :Dispatchable = 1 end
 
 @linq dfDict["tech"] |> where(:TechType .== "Hydro") |> select(:Dispatchable)
-
-# Add a Carbon Content column with zero values
-if !in(:CarbonContent, names(dfDict["tech"]))
-      insertcols!(dfDict["tech"], size(dfDict["tech"])[2], CarbonContent=zeros(size(dfDict["tech"])[1]))
-end
 
 # Turn a missing ExisitingCapacity value into a 0 value:
 # alt: @linq dfDict["tech"] |> where(:Status .== NewEntrant)
@@ -518,6 +536,12 @@ N_SYNC = dtr.model.obj_dict[:N_SYNC]
 
 # %% Fix necessary variables for this scenario:
 
+# No storage inflow in first period
+for (n,sto) in Nodes_Storages
+    JuMP.fix(STO_IN[(n,sto),1],0; force=true)
+end
+
+
 NoExpansionREZones = keys(filter(x -> ismissing(x[2]), dtr.parameters[:TransExpansionCost]))
 for rez in NoExpansionREZones
       JuMP.fix(N_RES_EXP[rez], 0; force=true)
@@ -542,20 +566,15 @@ for (n,t) in keys(FixCapDict)
       end
 end
 
-Coal_ExistingCapDict = Dict([x for x in par[:ExistingCapacity]
-      if x.first in keys(dvalmatch(par[:FuelType],r"Coal")) && par[:Status][x.first] == "GenericExisting"])
-
-# # (Re)Fix the capacity of existing coal generation at a certain fraction `coal_adjust`
-for (n,t) in keys(Coal_ExistingCapDict)
-      if (n,t) in dtr.sets[:Nodes_Techs]
-            JuMP.fix(N_TECH[(n,t)], dtr.settings[:coal_adjust]*ExistingCapDict[(n,t)]; force=true)
-      end
-end
-
-# No storage inflow in first period
-for (n,sto) in dtr.sets[:Nodes_Storages]
-      JuMP.fix(STO_IN[(n,sto),1],0; force=true)
-end
+# Coal_ExistingCapDict = Dict([x for x in par[:ExistingCapacity]
+#       if x.first in keys(dvalmatch(par[:FuelType],r"Coal")) && par[:Status][x.first] == "GenericExisting"])
+#
+# # # (Re)Fix the capacity of existing coal generation at a certain fraction `coal_adjust`
+# for (n,t) in keys(Coal_ExistingCapDict)
+#       if (n,t) in dtr.sets[:Nodes_Techs]
+#             JuMP.fix(N_TECH[(n,t)], dtr.settings[:coal_adjust]*ExistingCapDict[(n,t)]; force=true)
+#       end
+# end
 
 # %% Hydro reservoir constraints:
 
