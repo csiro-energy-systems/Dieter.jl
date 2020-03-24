@@ -60,6 +60,7 @@ resultsSplitIndex = [
     :N_STO_E => [:Nodes_Storages, [:Nodes, :Technologies],[:Value]],
     :N_STO_P => [:Nodes_Storages, [:Nodes, :Technologies],[:Value]],
     :N_RES_EXP => [],
+    :N_SYNC => [],
     :FLOW => [:Arcs,[:From,:To],[:Hours,:Value]]
 ]
 
@@ -77,6 +78,7 @@ sortIndex = Dict(
     :N_STO_E => [:Technologies, :Nodes],
     :N_STO_P => [:Technologies, :Nodes],
     :N_RES_EXP => [:REZones],
+    :N_SYNC => [:DemandRegion],
     :FLOW => [:From,:To]
 )
 
@@ -233,6 +235,8 @@ XLSX.openxlsx(xlsx_output_file, mode="w") do xf
         XLSX.writetable!(xf["CAPACITY_STO"], prepare_df_xlsx(resSplit[:CAPACITY_STO])...)
     XLSX.addsheet!(xf,"CAPACITY_REZ_EXP")
         XLSX.writetable!(xf["CAPACITY_REZ_EXP"], prepare_df_xlsx(resSplit[:CAPACITY_REZ_EXP])...)
+    XLSX.addsheet!(xf,"CAPACITY_SYNC")
+        XLSX.writetable!(xf["CAPACITY_SYNC"], prepare_df_xlsx(resSplit[:N_SYNC])...)
     XLSX.addsheet!(xf,"GEN_TxZ")
         # XLSX.writetable!(xf["GEN_TxZ"], prepare_df_xlsx(resSplit[:TxZ_GEN])...)
     XLSX.addsheet!(xf,"GEN_REZ")

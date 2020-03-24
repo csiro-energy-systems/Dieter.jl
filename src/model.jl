@@ -717,6 +717,7 @@ function generate_results!(dtr::DieterModel)
         :N_STO_E => [:Nodes_Storages],
         :N_STO_P => [:Nodes_Storages],
         :N_RES_EXP => [:REZones],
+        :N_SYNC => [:DemandRegion],
         :FLOW => [:Arcs,:Hours],
 
         :EV_CHARGE => [:EV, :Hours],

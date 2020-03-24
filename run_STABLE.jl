@@ -31,6 +31,8 @@ Scen_Map = Dict("Scen1_BAU" => "4deg", "Scen2_DDC" => "2deg")
 ScenarioYear = 2030
 ScYr_Sym = Symbol("FYE$ScenarioYear")
 
+Note = "NoCO2"
+
 BattEnergyType = "N_BattEnergy"
 HydPumpEnergyType = "N_HydPumpEnergy"
 
@@ -42,7 +44,7 @@ Trace_Year = 2030 # Which year to use from the Reference_Year trace dataset
 # Technology
 scen_settings =Dict{Symbol,Any}()
 
-scen_settings[:scen] = run_timestamp*"-$(ScenarioName)-ScYr$(ScenarioYear)"
+scen_settings[:scen] = run_timestamp*"-$(ScenarioName)-ScYr$(ScenarioYear)-$(Note)"
 scen_settings[:interest] = 0.06
 scen_settings[:cost_scaling] = 1 # 1.0e-6
 # Modify the :min_res setting over [0,100] and rerun to see comparison.
@@ -649,7 +651,7 @@ using Serialization
 # solved_dtr.model = []
 Serialization.serialize(joinpath(resultsdir,results_filename), res)
 
-include("output.jl")
+include("src/output.jl")
 
 # %% Merge results with other runs
 # # include("merge.jl")
