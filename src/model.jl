@@ -420,19 +420,19 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     end
 
     @info "Minimum inertia threshold levels"
-    @constraint(m, InertiaNormalThreshold[dr=DemandRegions],
+    @constraint(m, InertiaNormalThreshold[dr=DemandRegions, h=Hours],
           N_SYNC[dr] +
-          sum(InertialSecs[t]*N_TECH[(n,t)]
+          sum(InertialSecs[t]*G[(n,t),h]   # / time_ratio ?
                 for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
                 >= InertiaMinThreshold[dr]*RequireRatio[dr]
     );
 
     @info "Secure inertia requirement levels"
-    @constraint(m, InertiaSecureRequirement[dr=DemandRegions],
+    @constraint(m, InertiaSecureRequirement[dr=DemandRegions, h=Hours],
           N_SYNC[dr] +
-          sum(InertialSecs[t]*N_TECH[(n,t)]
+          sum(InertialSecs[t]*G[(n,t),h]    # / time_ratio ?
                 for (n,t) in Nodes_Techs if node2DemReg[n] == dr)
-        + sum(InertialSecs[sto]*N_STO_P[(n,sto)]
+        + sum(InertialSecs[sto]*STO_OUT[(n,sto),h]
                 for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
                 >= InertiaMinSecure[dr]*RequireRatio[dr]
     );

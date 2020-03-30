@@ -24,14 +24,14 @@ using Dates
 
 run_timestamp = "$(Date(Dates.now()))-H$(hour(now()))"
 
-ScenarioName = "Scen1_BAU"
-# ScenarioName = "Scen2_DDC"
+# ScenarioName = "Scen1_BAU"
+ScenarioName = "Scen2_DDC"
 Scen_Map = Dict("Scen1_BAU" => "4deg", "Scen2_DDC" => "2deg")
 # Specfied Year for the scenario setting:
-ScenarioYear = 2030
+ScenarioYear = 2050
 ScYr_Sym = Symbol("FYE$ScenarioYear")
 
-Note = "withCO2"
+Note = "NoNewGas"
 
 BattEnergyType = "N_BattEnergy"
 HydPumpEnergyType = "N_HydPumpEnergy"
@@ -126,6 +126,20 @@ dfDict["map_node_storages"] = parse_file(fileDict["map_node_storages"]; dataname
 dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
 
 # %% Additional parameters
+
+# Remove new gas if specified:
+if Note == "NoNewGas"
+      GasTech_New = @linq dfDict["tech"] |>
+                  where(:Status .== "NewEntrant", occursin.(r"Gas",:FuelType)) |>
+                  select(:Technologies)
+      GasTech_New = (unique(GasTech_New,:Technologies))[!,:Technologies]
+
+      dfDict["map_node_tech"] = @byrow! dfDict["map_node_tech"] begin
+            if in(:Technologies,GasTech_New)
+                  :IncludeFlag = 0
+            end
+      end
+end
 
 # # New capital / overnight costs
 fileDict["capital_costs"] = joinpath(datapath,"base","capital_costs.sql")
@@ -537,7 +551,7 @@ N_SYNC = dtr.model.obj_dict[:N_SYNC]
 # %% Fix necessary variables for this scenario:
 
 # No storage inflow in first period
-for (n,sto) in Nodes_Storages
+for (n,sto) in dtr.sets[:Nodes_Storages]
     JuMP.fix(STO_IN[(n,sto),1],0; force=true)
 end
 
