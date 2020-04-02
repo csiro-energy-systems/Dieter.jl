@@ -114,8 +114,7 @@ function map_idcol(df::DataFrame, id_cols::Int; skip_cols=Symbol[])
     push!(skip_cols, names(df)[id_cols])
 
     if id_cols > 1
-        ids = zip([col for col in eachcol(df[:,1:id_cols], false)]...) |>
-            collect
+        ids = collect(zip([col for col in eachcol(df[:,1:id_cols], false)]...))
     else
         ids = df[!, 1]
     end
@@ -162,8 +161,7 @@ function map_idcol(df::DataFrame, id_cols::Array{Symbol,1}; skip_cols=Symbol[])
 
     for col in eachcol(df, true)
         if col[1] in non_id
-            vals = Dict(collect(zip(Keys,col[2])))
-            dict[col[1]] = vals
+            dict[col[1]] = Dict(collect(zip(Keys,col[2])))
         end
     end
 

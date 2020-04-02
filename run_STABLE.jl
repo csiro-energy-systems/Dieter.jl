@@ -28,9 +28,10 @@ run_timestamp = "$(Date(Dates.now()))-H$(hour(now()))"
 ScenarioName = "Scen2_DDC"
 Scen_Map = Dict("Scen1_BAU" => "4deg", "Scen2_DDC" => "2deg")
 # Specfied Year for the scenario setting:
-ScenarioYear = 2050
+ScenarioYear = 2030
 ScYr_Sym = Symbol("FYE$ScenarioYear")
 
+NoNewGas = false
 Note = "NoNewGas"
 
 BattEnergyType = "N_BattEnergy"
@@ -51,7 +52,8 @@ scen_settings[:cost_scaling] = 1 # 1.0e-6
 scen_settings[:min_res] = 10
 scen_settings[:ev] = missing
 scen_settings[:heat] = missing
-scen_settings[:h2] = missing
+scen_settings[:h2] = 0  # missing -> H2 not included, any number -> H2 included
+
 
 # Half-hourly: timestep=1, Hourly: timestep=2,
 # If timestep = 2, we obtain an hourly approximation of half-hour data by sampling on every second data point.
@@ -62,7 +64,18 @@ timestep = scen_settings[:timestep]
 scen_settings[:coal_adjust] = 1;
 # Set the maximum allowed contribution to peak demand by a single technology
 # scen_settings[:peak_factor] = 2.5;
-# %% Data paths and connections
+
+# CarbonBudgetDict by ScenarioName and ScenarioYear in millions of t-CO2 (Mt-CO2e)
+# Construction should normally be automated from a carbon scenario table...
+# CarbonBudgetDict["Scen1_BAU",2030] = 3500
+# CarbonBudgetDict["Scen1_BAU",2050] = 2800
+# CarbonBudgetDict["Scen2_DDC",2030] = 1500
+# CarbonBudgetDict["Scen2_DDC",2050] = 0
+#
+# scen_settings[:carbon_budget] = 1000*CarbonBudgetDict[ScenarioName,ScenarioYear]
+
+
+# %% Data paths and connections (to customise by modeller)
 
 # projectpath = joinpath(ENV["HOME"],"Documents/Projects/ESM/Dieter.jl/")
 projectpath = pwd()
@@ -128,7 +141,7 @@ dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
 # %% Additional parameters
 
 # Remove new gas if specified:
-if Note == "NoNewGas"
+if NoNewGas
       GasTech_New = @linq dfDict["tech"] |>
                   where(:Status .== "NewEntrant", occursin.(r"Gas",:FuelType)) |>
                   select(:Technologies)
@@ -171,10 +184,22 @@ df_costES = @linq df_costES |> where(:Scenario .== Scen_Map[ScenarioName])
 params_costES = Dieter.map_idcol(df_costES, [:Technologies], skip_cols=Symbol[:Scenario])
 for (k,v) in params_costES Dieter.update_dict!(dtr.parameters, k, v) end
 
+# %% Hydrogen parameters
+
+# fileDict["h2_technologies"] = joinpath(datapath,"base","h2_technologies.sql")
+dfDict["h2_technologies"] = parse_file(fileDict["h2_technologies"]; dataname=dataname)
+parse_h2_technologies!(dtr, dfDict["h2_technologies"])
+
+
+# %% Synchronous condensers
 # Synchronous condenser with flywheel - cost in $ per inertial units of `MWs`
 
-SynConOvernightCost =  37727.0  # Units:  $/MWs
-LifetimeSynCon = 30
+SynConOvernightCost =  round(1.0E6*185.2/4400, digits=2) # Units:  $/MWs
+# ElectraNet project of $185.2 million, for 4400 MWs of inertia via 4 sync. cons.
+# ElectraNet, "Main grid system strength project: Contingent project application", p. 21, 28 June 2019, p. 19.
+# All dollar amounts in this document are in real, $2017–18 in line with the ElectraNet's revenue determination unless otherwise stated.
+
+LifetimeSynCon = 40   # Source: GHD; Economic life for ElectraNet synchronous condensers - ElectraNet 28 June 2019
 i = dtr.settings[:interest]
 SynConCapCost = SynConOvernightCost*Dieter.annuity(i, LifetimeSynCon)
 dtr.parameters[:SynConCapCost] = Dict("SynConNew" => SynConCapCost)
@@ -229,18 +254,20 @@ OverwriteCapDict = Dict([(n,t) => ScenCapacityDict[n,t,y,sc]
 
 # %% Carbon
 
-fileDict["carbon_price"] = joinpath(datapath,"base","carbon_price.sql")
-dfDict["carbon_price"] = parse_file(fileDict["carbon_price"]; dataname=dataname)
+fileDict["carbon_param"] = joinpath(datapath,"base","carbon_param.sql")
+dfDict["carbon_param"] = parse_file(fileDict["carbon_param"]; dataname=dataname)
 
-Scen_co2 = @where(dfDict["carbon_price"], :ScenarioName .== ScenarioName, :ScenarioYear .== ScenarioYear)
+Scen_co2 = @where(dfDict["carbon_param"], :ScenarioName .== ScenarioName, :ScenarioYear .== ScenarioYear)
 # Scen_co2[!, :CarbonPrice][1]
 dtr.settings[:co2] = Scen_co2[!,:CarbonPrice][1]
+dtr.settings[:carbon_budget] = Scen_co2[!,:CarbonBudget][1]
 
 # Add a Carbon Content column with zero values
 if !in(:CarbonContent, names(dfDict["tech"]))
       insertcols!(dfDict["tech"], size(dfDict["tech"])[2], CarbonContent=zeros(size(dfDict["tech"])[1]))
 end
 
+# Note: CarbonContent is generally assumed to be in Units t-CO2/MWh-thermal
 fileDict["carbon_content"] = joinpath(datapath,"base","carbon_content.sql")
 dfDict["carbon_content"] = parse_file(fileDict["carbon_content"]; dataname=dataname)
 
@@ -249,6 +276,8 @@ fuel_to_cc_dict = fueltype_cc_dict[:CarbonContent]
 dfDict["tech"] = @byrow! dfDict["tech"] begin
             :CarbonContent = fuel_to_cc_dict[:FuelType]
       end
+
+# dtr.parameters[:CarbonBudget] = scen_settings[:carbon_budget]
 
 # %% Modify data in-frame:
 
@@ -288,11 +317,32 @@ dfDict["storage"] = @byrow! dfDict["storage"] begin
        end
  end
 
+# # Hornsdale
 dfDict["storage"] = @byrow! dfDict["storage"] begin
       if :Storages == "BattInvWind_Exi" && :Region == "NSA"
              :MaxEnergyToPowerRatio = 1.0
       end
 end
+
+# # Shoalhaven (NSW)
+dfDict["storage"] = @byrow! dfDict["storage"] begin
+      if :Storages == "HydPump_Exi" && :Region == "NCEN"
+             :MaxEnergyToPowerRatio = 64.0
+      end
+end
+
+# # Snowy 2.0
+Snowy2_Capacity = 2000.0 # MW
+Snowy2_HoursStorage = 168.0
+dfDict["storage"] = @byrow! dfDict["storage"] begin
+      if :Storages == "HydPump_Exi" && :Region == "SWNSW"
+             :ExistingCapacity = :ExistingCapacity + Snowy2_Capacity
+             :MaxEnergyToPowerRatio = Snowy2_HoursStorage
+      end
+end
+@linq dfDict["storage"] |> where(:Storages .== "HydPump_Exi") |> select(:Region, :ExistingCapacity, :MaxEnergyToPowerRatio)
+
+# # Battery of the Nation...
 
 ConnectCost = dtr.parameters[:ConnectCost]
 

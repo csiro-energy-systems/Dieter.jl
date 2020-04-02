@@ -183,7 +183,7 @@ function initialise_data_file_dict!(dtr::AbstractDieterModel,sfx::String)
 
     # %% Hydrogen (h2)
     if !(dtr.settings[:h2] |> ismissing)
-        fileDict["h2"] = joinpath(datapath,"h2","h2_technologies."*sfx)
+        fileDict["h2_technologies"] = joinpath(datapath,"h2","h2_technologies."*sfx)
     end
 
     return dtr

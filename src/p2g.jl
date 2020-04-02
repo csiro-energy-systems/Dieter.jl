@@ -12,7 +12,7 @@ function parse_h2_technologies!(dtr::DieterModel, df::DataFrame)
     dtr.sets[:GasStorages] = disallowmissing([row[:H2Technologies] for row in eachrow(df)
         if row[:H2Type] == "GasStorage"])
 
-    params = map_idcol(df)
+    params = map_idcol(df, [:Region, :H2Technologies], skip_cols=Symbol[])
     for (k,v) in params update_dict!(dtr.parameters, k, v) end
 
     return nothing
@@ -20,7 +20,7 @@ end
 
 function calc_inv_gas!(dtr::DieterModel)
     T = dtr.sets[:H2Technologies]
-    oc = dtr.parameters[:OvernightCost]
+    oc = dtr.parameters[:H2OvernightCost]
     lt = dtr.parameters[:Lifetime]
     i = dtr.settings[:interest]
 

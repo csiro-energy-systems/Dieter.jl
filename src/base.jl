@@ -117,8 +117,8 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
     ## Hydrogen (h2)
     if !(dtr.settings[:h2] |> ismissing)
         # e.g. fileDict["h2"] = joinpath(datapath,"h2","h2_technologies.csv")
-        dfDict["h2"] = parse_file(fileDict["h2"]; dataname=dataname)
-        parse_h2_technologies!(dtr, dfDict["h2"])
+        dfDict["h2_technologies"] = parse_file(fileDict["h2_technologies"]; dataname=dataname)
+        parse_h2_technologies!(dtr, dfDict["h2_technologies"])
 
         calc_inv_gas!(dtr)
     else
@@ -288,6 +288,8 @@ function initialise_set_relation_data!(dtr)
     dtr.data["relations"]["rel_node_demand"] = rel_node_demand
     dtr.data["relations"]["rel_node_incidence"] = rel_node_incidence
 
+    return nothing
+
 end
 
 function parse_set_relations!(dtr)
@@ -404,7 +406,7 @@ function calc_mc!(dtr::DieterModel)
     fc = dtr.parameters[:FuelCost]
     eff = dtr.parameters[:Efficiency]
     cc = dtr.parameters[:CarbonContent]
-    co2 = dtr.settings[:co2]
+    co2 = dtr.settings[:co2]  # Price on carbon in currency/t-CO2
     vc = dtr.parameters[:VariableCost]
 
     marginalcost = Dict((n,t) => fc[n,t]/eff[n,t] + (cc[n,t]*co2)/eff[n,t] + vc[n,t] for (n,t) in Nodes_Techs)

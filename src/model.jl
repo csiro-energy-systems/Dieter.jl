@@ -1,7 +1,8 @@
 ## This file is part of Dieter.jl : Model definition
 
-# const hoursInYear = 8760
-# const infeas_cost = 1000
+# const hoursInYear = 8760     # Units: hours/yr
+# const H2_energy_density = 39405.6 # Units : MWh / kg
+# const infeas_cost = 1000     # Currency (cost)
 
 """
 Build the JuMP model describing the optimization problem, specifying the `solver` to use.
@@ -128,8 +129,11 @@ function build_model!(dtr::DieterModel,
     MaxCapacity = dtr.parameters[:MaxCapacity] # Units: MW; Maximum installable capacity - power
     MaxEnergy = dtr.parameters[:MaxEnergy] # Units: MWh; Maximum installable storage capacity energy
     MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio] # Units: hours; Maximum ratio of stored energy to power delivery
-    Efficiency = dtr.parameters[:Efficiency] # Units: [0,1]; Storage roundtrip efficiency
+    Efficiency = dtr.parameters[:Efficiency] # Units: [0,1]; Combustion/Storage roundtrip efficiency
     StartLevel = dtr.parameters[:StartLevel] # Units: [0,1]; Initial storage level as fraction of storage energy installed
+
+    CarbonContent = dtr.parameters[:CarbonContent] # Units: t-CO2/MWh-thermal; CO2 equivalent content per unit fuel used by tech.
+    CarbonBudget = dtr.settings[:carbon_budget] # Units: t-CO2
 
     InertialSecs = dtr.parameters[:InertialCoeff]
     InertiaMinThreshold = dtr.parameters[:InertiaMinThreshold]
@@ -422,7 +426,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @info "Minimum inertia threshold levels"
     @constraint(m, InertiaNormalThreshold[dr=DemandRegions, h=Hours],
           N_SYNC[dr] +
-          sum(InertialSecs[t]*G[(n,t),h]   # / time_ratio ?
+          sum(InertialSecs[t]*G[(n,t),h]/time_ratio
                 for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
                 >= InertiaMinThreshold[dr]*RequireRatio[dr]
     );
@@ -430,11 +434,18 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @info "Secure inertia requirement levels"
     @constraint(m, InertiaSecureRequirement[dr=DemandRegions, h=Hours],
           N_SYNC[dr] +
-          sum(InertialSecs[t]*G[(n,t),h]    # / time_ratio ?
+          sum(InertialSecs[t]*G[(n,t),h]/time_ratio
                 for (n,t) in Nodes_Techs if node2DemReg[n] == dr)
-        + sum(InertialSecs[sto]*STO_OUT[(n,sto),h]
+        + sum(InertialSecs[sto]*N_STO_P[(n,sto)]
                 for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
                 >= InertiaMinSecure[dr]*RequireRatio[dr]
+    );
+
+    @info "Carbon budget upper limit (annual)"
+    @constraint(m, CarbonBudgetLimit[dr=DemandRegions],
+        sum((CarbonContent[n,t]/Efficiency[n,t]) * G[(n,t),h]
+                for (n,t) in Nodes_Techs, h in Hours)
+        <= CarbonBudget
     );
 #=
     if !(isDictAllMissing(MaxRampRate))
@@ -442,11 +453,6 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         @constraint(m, RampingLimits[(n,t)=Nodes_Techs, h=Hours; !(MaxRampRate[n,t] |> ismissing)],
             -MaxRampRate[n,t] <= G_UP[(n,t),h] - G_DO[(n,t),h] <= MaxRampRate[n,t]
     end
-
-    @constraint(m, MinInertialCapacity[h=Hours],
-        sum(G[(n,t),h] for (n,t)=Nodes_Techs if !ismissing(IsInertial[n,t]))
-            >= min_inertial_fraction * sum(G[(n,t),h] for (n,t)=Nodes_Techs)
-    );
 
     next!(prog)
     println("\n")
@@ -614,44 +620,47 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     next!(prog)
     println("\n")
 
+    @info "Hydrogen: Variable upper bound on power-to-gas."
     @constraint(m, MaxP2G[p2g=P2G,h=Hours],
         H2_P2G[p2g,h] <= time_ratio * N_P2G[p2g]
     );
 
+    @info "Hydrogen: Variable upper bound on gas-to-power."
     @constraint(m, MaxG2P[g2p=G2P,h=Hours],
         H2_G2P[g2p,h] <= time_ratio * N_G2P[g2p]
     );
 
-    @constraint(m, MaxLevelGasstorage[gs=GasStorages,h=Hours],
+    @info "Hydrogen: Variable upper bound on gas storage."
+    @constraint(m, MaxLevelGasStorage[gs=GasStorages,h=Hours],
         H2_GS_L[gs,h] <= N_GS[gs]
     );
 
+    @constraint(m, GasStorageIn[gs=GasStorages,h=Hours],
+        H2_GS_IN[gs,h] = (1/H2_energy_density)*sum(Efficiency[p2g]*H2_P2G[p2g,h] for p2g in P2G)
+
+    @info "Hydrogen: energy balance."
     @constraint(m, H2Balance[h=Hours],
-        sum(sqrt(Efficiency[p2g])*H2_P2G[p2g,h] for p2g in P2G)  # Added sqrt to Efficiency
+        sum(Efficiency[p2g]*H2_P2G[p2g,h] for p2g in P2G)  # No sqrt on Efficiency, not a roundtrip
         + sum(H2_GS_IN[gs,h] for gs in GasStorages)   ## Changed: H2_GS_OUT -> H2_GS_IN
         # + sum(H2_GS_OUT[gs,h] for gs in GasStorages)   ## Should this be changed: H2_GS_OUT -> H2_GS_IN ?
         ==
-        sum((1/sqrt(Efficiency[g2p]))*H2_G2P[g2p,h] for g2p in G2P)  # Added sqrt to Efficiency
+        sum((1/Efficiency[g2p])*H2_G2P[g2p,h] for g2p in G2P)   # No sqrt on Efficiency, not a roundtrip
         + sum(H2_GS_OUT[gs,h] for gs in GasStorages)    ## Changed: H2_GS_IN -> H2_GS_OUT
         # + sum(H2_GS_IN[gs,h] for gs in GasStorages)    ## Should this be changed: H2_GS_IN -> H2_GS_OUT ?
         + H2Demand
     );
 
-    @constraint(m, GasstorageBalance[gs=GasStorages,h=Hours2],
-        H2_GS_L[gs, h]
-        ==
-        H2_GS_L[gs, h-1]
-        + H2_GS_IN[gs, h]
-        - H2_GS_OUT[gs, h]
+    @info "Hydrogen: gas storage balance."
+    @constraint(m, GasStorageBalance[gs=GasStorages,h=Hours2],
+        H2_GS_L[gs, h] == H2_GS_L[gs, h-1] + H2_GS_IN[gs, h] - H2_GS_OUT[gs, h]
     );
 
-    @constraint(m, GasstorageBalanceFirstHours[gs=GasStorages],
-        H2_GS_L[gs, Hours[1]]
-        ==
-        H2_GS_L[gs, Hours[end]]
-        + H2_GS_IN[gs,Hours[1]]
-        - H2_GS_OUT[gs,Hours[1]]
+    @info "Hydrogen: gas storage balance at first and last time-steps."
+    @constraint(m, GasStorageBalanceFirstHours[gs=GasStorages],
+        H2_GS_L[gs, Hours[1]] == H2_GS_L[gs, Hours[end]] + H2_GS_IN[gs,Hours[1]] - H2_GS_OUT[gs,Hours[1]]
     );
+
+    # StartLevel[n,gs] * N_GS[(n,gs)]
 
     next!(prog)
     println("\n")

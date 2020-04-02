@@ -36,8 +36,9 @@ include("heat.jl")
 include("p2g.jl")
 
 # %%
-const hoursInYear = 8760
-const infeas_cost = 1000
+const hoursInYear = 8760     # Units: hours/yr
+const H2_energy_density = 39405.6 # Units : MWh / kg
+const infeas_cost = 1000     # Currency (cost)
 
 include("model.jl")
 
