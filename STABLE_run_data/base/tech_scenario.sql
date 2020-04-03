@@ -1,9 +1,7 @@
 SELECT
-TechID AS Technologies,
--- TechTypeID,
-ZoneID AS Region,
-ScenarioName,
-ScenarioYear,
-CapacityPresent
+-- ScenarioName,
+-- Region,
+-- TechID AS Technologies,
+*
 FROM
 Tech_Scenario

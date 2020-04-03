@@ -32,7 +32,7 @@ ScenarioYear = 2030
 ScYr_Sym = Symbol("FYE$ScenarioYear")
 
 NoNewGas = false
-Note = "NoNewGas"
+Note = "Testing"
 
 BattEnergyType = "N_BattEnergy"
 HydPumpEnergyType = "N_HydPumpEnergy"
@@ -138,6 +138,20 @@ dfDict["map_node_tech"] = parse_file(fileDict["map_node_tech"]; dataname=datanam
 dfDict["map_node_storages"] = parse_file(fileDict["map_node_storages"]; dataname=dataname)
 dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
 
+# %% Renewable Energy Targets
+
+# Load in the complete RET scenario data sets:
+fileDict["re_targets"] = joinpath(datapath,"base","re_targets.sql")
+dfDict["re_targets"] = parse_file(fileDict["re_targets"]; dataname=dataname)
+
+# Filter the data set for the current Scenario, and put in the model settings:
+dtr.settings[:min_res] = Dict(eachrow(
+      @linq dfDict["re_targets"] |>
+      where(:ScenarioName .== ScenarioName, :ScenarioYear .== ScenarioYear) |>
+      select(:Region, :MinRET)
+      ))
+
+
 # %% Additional parameters
 
 # Remove new gas if specified:
@@ -227,23 +241,32 @@ dfDict["TxZ_connect"] = parse_file(fileDict["TxZ_connect"]; dataname=dataname)
 params_txc = Dieter.map_idcol(dfDict["TxZ_connect"], [:Region, :Technologies], skip_cols=Symbol[])
 for (k,v) in params_txc Dieter.update_dict!(dtr.parameters, k, v) end
 
-# # Technology capacity overwrites by scenario:
-# This creates a parameter called CapacityPresent indexed by Region, Technologies,ScenarioYear and ScenarioName
+# %% Technology capacity overwrites by scenario:
+# This creates a parameter called ScenarioCapacity indexed by Region, Technologies
 fileDict["tech_scenario"] = joinpath(datapath,"base","tech_scenario.sql")
 dfDict["tech_scenario"] = parse_file(fileDict["tech_scenario"]; dataname=dataname)
 
+df_techscen = DataFrames.rename!(
+      dfDict["tech_scenario"][!,[:Region, :TechID, ScYr_Sym]],
+      Dict(:TechID => :Technologies, ScYr_Sym => :ScenarioCapacity)
+      )
+
 for (k,v) in Dieter.map_idcol(
-            dfDict["tech_scenario"],
-            [:Region, :Technologies,:ScenarioYear,:ScenarioName],
+            df_techscen,
+            [:Region, :Technologies],
              skip_cols=Symbol[]
             )
       Dieter.update_dict!(dtr.parameters, k, v)
 end
 
-ScenCapacityDict = dtr.parameters[:CapacityPresent]
-OverwriteCapDict = Dict([(n,t) => ScenCapacityDict[n,t,y,sc]
-                        for (n,t,y,sc) in keys(ScenCapacityDict)
-                        if (y == ScenarioYear && sc == ScenarioName)])
+ScenarioCapacityDict = dtr.parameters[:ScenarioCapacity]
+# OverwriteCapDict = Dict([(n,t) => ScenarioCapacityDict[n,t,y,sc]
+#                         for (n,t,y,sc) in keys(ScenCapacityDict)
+#                         if (y == ScenarioYear && sc == ScenarioName)])
+
+# This will be used later to overwrite and fix certain capacity in the model.
+# It may be necessary to check technologies included here;
+# particularly certain fossil fuel tech. types like OCGT w. diesel/distillate.
 
 # %% Carbon
 
@@ -633,7 +656,7 @@ ExistingCapDict = filter(x -> x.second > 0, dtr.parameters[:ExistingCapacity])
 # ExistingCapDict = filter(x -> !ismissing(x.second), dtr.parameters[:ExistingCapacity])
 
 # Overwrite with any imposed scenario capacities read via "tech_scenario" files:
-FixCapDict = merge(ExistingCapDict,OverwriteCapDict)
+FixCapDict = merge(ExistingCapDict,ScenarioCapacityDict)
 
 # # Fix the capacity of existing generation and storage technologies
 for (n,t) in keys(FixCapDict)
