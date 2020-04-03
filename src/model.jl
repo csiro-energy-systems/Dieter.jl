@@ -104,7 +104,12 @@ function build_model!(dtr::DieterModel,
     G2P = dtr.sets[:G2P]
     GasStorages = dtr.sets[:GasStorages]
 
+    Nodes_P2G = dtr.sets[:Nodes_P2G]
+    Nodes_G2P = dtr.sets[:Nodes_G2P]
+    Nodes_GasStorages = dtr.sets[:Nodes_GasStorages]
+
     # Parameter definitions
+    H2Conversion = dtr.parameters[:H2Conversion]  # Units: MWh / tonne-H2
 
     EvDemand = dtr.parameters[:AbsoluteEvDemand]
     EvPower = dtr.parameters[:AbsoluteEvPower]
@@ -180,6 +185,14 @@ function build_model!(dtr::DieterModel,
                     "Storage_capacity" => "N_STO_P",
                     "SynCon_capacity" => "N_SYNC",
                     "Internodal_flow" => "FLOW",
+                    "H2_power_to_gas" => "H2_P2G",
+                    "H2_gas_to_power" => "H2_G2P",
+                    "H2_storage_level" => "H2_GS_L",
+                    "H2_storage_inflow" => "H2_GS_IN",
+                    "H2_storage_outflow" => "H2_GS_OUT",
+                    "H2_P2G_capacity" => "N_P2G",
+                    "H2_G2P_capacity" => "N_G2P",
+                    "H2_storage_capacity" => "N_GS",
                     "EV_charging" => "EV_CHARGE",
                     "EV_discharging" => "EV_DISCHARGE",
                     "EV_charge_level" => "EV_L",
@@ -215,14 +228,14 @@ function build_model!(dtr::DieterModel,
             EV_L[EV, Hours], (base_name=shorter["EV_charge_level"], lower_bound=0) # Units: MWh at a given time-interval; Electric vehicle charging level for vehicle profile in set EV
             EV_PHEVFUEL[EV, Hours], (base_name=shorter["EV_PHEV_fuel_use"], lower_bound=0) #  Plug-in hybrid electric vehicle conventional fuel use
             EV_INF[EV, Hours], (base_name=shorter["EV_infeasible"], lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Electric vehicle energy balance
-            H2_P2G[P2G, Hours], (base_name=shorter["H2_power_to_gas"], lower_bound=0) # Units: MWh per time-interval; Power-to-gas energy conversion
-            H2_G2P[G2P, Hours], (base_name=shorter["H2_gas_to_power"], lower_bound=0) # Units: MWh per time-interval; Gas-to-power energy conversion
-            H2_GS_L[GasStorages, Hours], (base_name=shorter["H2_storage_level"], lower_bound=0) # Units: MWh at a given time-interval; Current gas storage level
-            H2_GS_IN[GasStorages, Hours], (base_name=shorter["H2_storage_inflow"], lower_bound=0)
-            H2_GS_OUT[GasStorages, Hours], (base_name=shorter["H2_storage_outflow"], lower_bound=0)
-            N_P2G[P2G], (base_name=shorter["H2_P2G_capacity"], lower_bound=0) # Units: MW; Power-to-gas capacity
-            N_G2P[G2P], (base_name=shorter["H2_G2P_capacity"], lower_bound=0) # Units: MW; Gas-to-power capacity
-            N_GS[GasStorages], (base_name=shorter["H2_storage_capacity"], lower_bound=0) # Units; MWh (??) ; Gas storage (energy) capacity
+            H2_P2G[Nodes_P2G, Hours], (base_name=shorter["H2_power_to_gas"], lower_bound=0) # Units: MWh per time-interval; Power-to-gas energy conversion
+            H2_G2P[Nodes_G2P, Hours], (base_name=shorter["H2_gas_to_power"], lower_bound=0) # Units: MWh per time-interval; Gas-to-power energy conversion
+            H2_GS_L[Nodes_GasStorages, Hours], (base_name=shorter["H2_storage_level"], lower_bound=0) # Units: tonnes-H2 at a given time-interval; Current gas storage level
+            H2_GS_IN[Nodes_GasStorages, Hours], (base_name=shorter["H2_storage_inflow"], lower_bound=0) # Units: tonnes-H2 at a given time-interval; Current gas storage input
+            H2_GS_OUT[Nodes_GasStorages, Hours], (base_name=shorter["H2_storage_outflow"], lower_bound=0) # Units: tonnes-H2 at a given time-interval; Current gas storage output
+            N_P2G[Nodes_P2G], (base_name=shorter["H2_P2G_capacity"], lower_bound=0) # Units: MW; Power-to-gas capacity
+            N_G2P[Nodes_G2P], (base_name=shorter["H2_G2P_capacity"], lower_bound=0) # Units: MW; Gas-to-power capacity
+            N_GS[Nodes_GasStorages], (base_name=shorter["H2_storage_capacity"], lower_bound=0) # Units; tonnes-H2 ; Gas storage (energy) capacity
             HEAT_STO_L[BU,HP,Hours], (base_name=shorter["Heat_storage_level"], lower_bound=0) # Units: MWh at a given time-interval; Heating: storage level
             HEAT_HP_IN[BU,HP, Hours], (base_name=shorter["Heat_heat_pump_"], lower_bound=0)   # Units: MWh per time-interval; Heating: electricity demand from heat pump
             HEAT_INF[BU,HP, Hours], (base_name=shorter["Heat_infeasible"], lower_bound=0)  # Units: MWh per time-interval; Heating: Infeasibility term for Electric vehicle energy balance
@@ -252,7 +265,8 @@ cost_scaling*(sum(MarginalCost[n,t] * G[(n,t),h] for (n,t) in Nodes_Dispatch, h 
                   + EvFuel[ev] * EV_PHEVFUEL[ev, h]
                   + infeas_cost * EV_INF[ev, h] for ev in EV, h in Hours)
 
-            + sum(MarginalCost[g2p] * H2_G2P[g2p,h] for g2p in G2P, h in Hours)
+            + sum(MarginalCost[n,p2g] * H2_P2G[(n,p2g),h] for (n,p2g) in Nodes_P2G, h in Hours)
+            + sum(MarginalCost[n,g2p] * H2_G2P[(n,g2p),h] for (n,g2p) in Nodes_G2P, h in Hours)
 
             + sum(infeas_cost * HEAT_INF[bu,hp,h] for bu in BU, hp in HP, h in Hours)
             )
@@ -269,13 +283,13 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
             + sum(TransExpansionCost[rez] * N_RES_EXP[rez] for rez in keys(TransExpansionCost) )
 
-            + sum(InvestmentCost[p2g] * N_P2G[p2g] for p2g in P2G)
-            + sum(InvestmentCost[g2p] * N_G2P[g2p] for g2p in G2P)
-            + sum(InvestmentCost[gs] * N_GS[gs] for gs in GasStorages)
+            + sum(InvestmentCost[n,p2g] * N_P2G[(n,p2g)] for (n,p2g) in Nodes_P2G)
+            + sum(InvestmentCost[n,g2p] * N_G2P[(n,g2p)] for (n,g2p) in Nodes_G2P)
+            + sum(InvestmentCost[n,gs] * N_GS[(n,gs)] for (n,gs) in Nodes_GasStorages)
 
-            + sum(FixedCost[p2g] * N_P2G[p2g] for p2g in P2G)
-            + sum(FixedCost[g2p] * N_G2P[g2p] for g2p in G2P)
-            + sum(FixedCost[gs] * N_GS[gs] for gs in GasStorages)
+            + sum(FixedCost[n,p2g] * N_P2G[(n,p2g)] for (n,p2g) in Nodes_P2G)
+            + sum(FixedCost[n,g2p] * N_G2P[(n,g2p)] for (n,g2p) in Nodes_G2P)
+            + sum(FixedCost[n,gs] * N_GS[(n,gs)] for (n,gs) in Nodes_GasStorages)
            )
         == Z
     );
@@ -328,13 +342,13 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
       sum(G_TxZ[zone,h] for (zone, d) in Nodes_Demand if d == n)
         # + sum(STO_OUT[(q,sto),h] for (q,sto) in Nodes_Storages if q == n)
         + sum(EV_DISCHARGE[ev,h] for ev in EV)
-        + sum(H2_G2P[g2p,h] for g2p in G2P)
+        + sum(H2_G2P[(n,g2p),h] for (n,g2p) in Nodes_G2P)
         ==
       Load[n,h]
         # = sum(Load[a,h] for (a,b) in Nodes_Demand if b == n)
         # + sum(STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == n)
         + sum(EV_CHARGE[ev,h] for ev in EV)
-        + sum(H2_P2G[p2g,h] for p2g in P2G)
+        + sum(H2_P2G[(n,p2g),h] for (n,p2g) in Nodes_P2G)
         + sum(HEAT_HP_IN[bu,hp,h] for bu in BU for hp in HP)
 
     );
@@ -470,7 +484,8 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
          for (zone, d) in Nodes_Demand if d == n
          for h in Hours
         )
-        + sum(H2_G2P[g2p,h] - H2_P2G[p2g,h] for p2g in P2G for g2p in G2P ) # for h in Hours)
+        + sum(H2_G2P[(n,g2p),h] for (n,g2p) in Nodes_G2P for h in Hours)
+        - sum(H2_P2G[(n,p2g),h] for (n,p2g) in Nodes_P2G for h in Hours)
         >=
         (min_res_dict[n]/100)*(
             sum(
@@ -480,8 +495,9 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
              for (zone, d) in Nodes_Demand if d == n
              for h in Hours
             )
-            + sum(H2_G2P[g2p,h] - H2_P2G[p2g,h] for p2g in P2G for g2p in G2P ) # for h in Hours)
-        )
+            + sum(H2_G2P[(n,g2p),h] for (n,g2p) in Nodes_G2P for h in Hours)
+            - sum(H2_P2G[(n,p2g),h] for (n,p2g) in Nodes_P2G for h in Hours)
+            )
     );
     # Note: if there is NO renewable energy associated to the DemandRegion, then this constraint will
     # act to zero out ALL generation associated to the DemandRegion.
@@ -619,49 +635,53 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     next!(prog)
     println("\n")
-#=
+
     @info "Hydrogen: Variable upper bound on power-to-gas."
-    @constraint(m, MaxP2G[p2g=P2G,h=Hours],
-        H2_P2G[p2g,h] <= time_ratio * N_P2G[p2g]
+    @constraint(m, MaxP2G[(n,p2g)=Nodes_P2G,h=Hours],
+        H2_P2G[(n,p2g),h] <= time_ratio * N_P2G[(n,p2g)]
     );
 
     @info "Hydrogen: Variable upper bound on gas-to-power."
-    @constraint(m, MaxG2P[g2p=G2P,h=Hours],
-        H2_G2P[g2p,h] <= time_ratio * N_G2P[g2p]
+    @constraint(m, MaxG2P[(n,g2p)=Nodes_G2P,h=Hours],
+        H2_G2P[(n,g2p),h] <= time_ratio * N_G2P[(n,g2p)]
     );
 
     @info "Hydrogen: Variable upper bound on gas storage."
-    @constraint(m, MaxLevelGasStorage[gs=GasStorages,h=Hours],
-        H2_GS_L[gs,h] <= N_GS[gs]
+    @constraint(m, MaxLevelGasStorage[(n,gs)=Nodes_GasStorages,h=Hours],
+        H2_GS_L[(n,gs),h] <= N_GS[(n,gs)]
     );
 
-    @constraint(m, GasStorageIn[gs=GasStorages,h=Hours],
-        H2_GS_IN[gs,h] = (1/H2_energy_density)*sum(Efficiency[p2g]*H2_P2G[p2g,h] for p2g in P2G)
+    @constraint(m, GasStorageIn[(n,gs)=Nodes_GasStorages,h=Hours],
+        H2_GS_IN[(n,gs),h] == sum(H2_P2G[(n,p2g),h]/H2Conversion[n,p2g] for (n,p2g) in Nodes_P2G)
+    );
 
+    @constraint(m, GasStorageOut[(n,gs)=Nodes_GasStorages,h=Hours],
+        H2_GS_OUT[(n,gs),h] == sum(H2_G2P[(n,g2p),h]/H2Conversion[n,g2p] for (n,g2p) in Nodes_G2P)
+    );
+
+#=
     @info "Hydrogen: energy balance."
     @constraint(m, H2Balance[h=Hours],
-        sum(Efficiency[p2g]*H2_P2G[p2g,h] for p2g in P2G)  # No sqrt on Efficiency, not a roundtrip
-        + sum(H2_GS_IN[gs,h] for gs in GasStorages)   ## Changed: H2_GS_OUT -> H2_GS_IN
+        sum(Efficiency[p2g]*H2_P2G[p2g,h] for p2g in Nodes_P2G)  # No sqrt on Efficiency, not a roundtrip
+        + sum(H2_GS_IN[gs,h] for gs in Nodes_GasStorages)   ## Changed: H2_GS_OUT -> H2_GS_IN
         # + sum(H2_GS_OUT[gs,h] for gs in GasStorages)   ## Should this be changed: H2_GS_OUT -> H2_GS_IN ?
         ==
-        sum((1/Efficiency[g2p])*H2_G2P[g2p,h] for g2p in G2P)   # No sqrt on Efficiency, not a roundtrip
-        + sum(H2_GS_OUT[gs,h] for gs in GasStorages)    ## Changed: H2_GS_IN -> H2_GS_OUT
+        sum((1/Efficiency[g2p])*H2_G2P[g2p,h] for g2p in Nodes_G2P)   # No sqrt on Efficiency, not a roundtrip
+        + sum(H2_GS_OUT[gs,h] for gs in Nodes_GasStorages)    ## Changed: H2_GS_IN -> H2_GS_OUT
         # + sum(H2_GS_IN[gs,h] for gs in GasStorages)    ## Should this be changed: H2_GS_IN -> H2_GS_OUT ?
         + H2Demand
     );
-
-    @info "Hydrogen: gas storage balance."
-    @constraint(m, GasStorageBalance[gs=GasStorages,h=Hours2],
-        H2_GS_L[gs, h] == H2_GS_L[gs, h-1] + H2_GS_IN[gs, h] - H2_GS_OUT[gs, h]
-    );
-
-    @info "Hydrogen: gas storage balance at first and last time-steps."
-    @constraint(m, GasStorageBalanceFirstHours[gs=GasStorages],
-        H2_GS_L[gs, Hours[1]] == H2_GS_L[gs, Hours[end]] + H2_GS_IN[gs,Hours[1]] - H2_GS_OUT[gs,Hours[1]]
-    );
-
-    # StartLevel[n,gs] * N_GS[(n,gs)]
 =#
+    @info "Hydrogen: gas storage balance."
+    @constraint(m, GasStorageBalance[(n,gs)=Nodes_GasStorages,h=Hours2],
+        H2_GS_L[(n,gs), h] == H2_GS_L[(n,gs), h-1] + H2_GS_IN[(n,gs), h] - H2_GS_OUT[(n,gs), h]
+    );
+
+    @info "Hydrogen: gas storage balance at first time-steps."
+    @constraint(m, GasStorageBalanceFirstHours[(n,gs)=Nodes_GasStorages],
+        H2_GS_L[(n,gs), Hours[1]] == StartLevel[n,gs] * N_GS[(n,gs)] + H2_GS_IN[(n,gs),Hours[1]] - H2_GS_OUT[(n,gs),Hours[1]]
+    );
+
     next!(prog)
     println("\n")
 
@@ -735,14 +755,14 @@ function generate_results!(dtr::DieterModel)
         :EV_PHEVFUEL => [:EV, :Hours],
         :EV_INF => [:EV, :Hours],
 
-        :H2_P2G => [:P2G, :Hours],
-        :H2_G2P => [:G2P, :Hours],
-        :H2_GS_L => [:GasStorages, :Hours],
-        :H2_GS_IN => [:GasStorages, :Hours],
-        :H2_GS_OUT => [:GasStorages, :Hours],
-        :N_P2G => [:P2G],
-        :N_G2P => [:G2P],
-        :N_GS => [:GasStorages],
+        :H2_P2G => [:Nodes_P2G, :Hours],
+        :H2_G2P => [:Nodes_G2P, :Hours],
+        :H2_GS_L => [:Nodes_GasStorages, :Hours],
+        :H2_GS_IN => [:Nodes_GasStorages, :Hours],
+        :H2_GS_OUT => [:Nodes_GasStorages, :Hours],
+        :N_P2G => [:Nodes_P2G],
+        :N_G2P => [:Nodes_G2P],
+        :N_GS => [:Nodes_GasStorages],
 
         :HEAT_STO_L => [:BU, :HP, :Hours],
         :HEAT_HP_IN => [:BU, :HP, :Hours],

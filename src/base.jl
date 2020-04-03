@@ -133,7 +133,7 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
         # end
     end
 
-    return dfDict
+    return nothing
 end
 
 function parse_nodes!(dtr::DieterModel, df::DataFrame)

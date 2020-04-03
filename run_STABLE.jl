@@ -3,7 +3,7 @@
 # %% Load packages
 using Dieter
 import Dieter: parse_file, parse_nodes!, parse_base_technologies!, parse_storages!, parse_load!, parse_availibility!
-import Dieter: initialise_set_relation_data!, parse_set_relations!,parse_arcs!, calc_base_parameters!
+import Dieter: initialise_set_relation_data!, parse_set_relations!,parse_arcs!, calc_base_parameters!, parse_extensions!
 import Dieter: dvalmatch, dkeymatch, split_df_tuple
 
 using JuMP
@@ -566,23 +566,24 @@ calc_base_parameters!(dtr)
 
 # %% Extensions
 
-# # Hydrogen
-fileDict["h2_technologies"] = joinpath(datapath,"h2","h2_technologies.sql")
-dfDict["h2_technologies"] = parse_file(fileDict["h2_technologies"]; dataname=dataname)
+parse_extensions!(dtr,dataname=sql_db_path)
 
-Dieter.parse_h2_technologies!(dtr, dfDict["h2_technologies"])
-
-rel_node_h2tech = create_relation(dfDict["h2_technologies"],:Region,:H2Technologies,:Efficiency)
-Nodes = dtr.sets[:Nodes]
-H2Technologies = dtr.sets[:H2Technologies]
-dtr.sets[:Nodes_H2Tech] = Dieter.tuple2_filter(rel_node_h2tech, Nodes, H2Technologies)
-
-Dieter.calc_inv_gas!(dtr)
-
-temp_h2_set = dtr.settings[:h2]
-dtr.settings[:h2] = missing
-Dieter.parse_extensions!(dtr,dataname=sql_db_path)
-dtr.settings[:h2] = temp_h2_set
+# # Hydrogen - code for testing sub-functions
+# fileDict["h2_technologies"] = joinpath(datapath,"h2","h2_technologies.sql")
+# dfDict["h2_technologies"] = parse_file(fileDict["h2_technologies"]; dataname=dataname)
+#
+# Dieter.parse_h2_technologies!(dtr, dfDict["h2_technologies"])
+#
+# rel_node_h2tech = create_relation(dfDict["h2_technologies"],:Region,:H2Technologies,:Efficiency)
+# Nodes = dtr.sets[:Nodes]
+# H2Technologies = dtr.sets[:H2Technologies]
+# dtr.sets[:Nodes_H2Tech] = Dieter.tuple2_filter(rel_node_h2tech, Nodes, H2Technologies)
+# Dieter.calc_inv_gas!(dtr)
+#
+# temp_h2_set = dtr.settings[:h2]
+# dtr.settings[:h2] = missing
+# Dieter.parse_extensions!(dtr,dataname=sql_db_path)
+# dtr.settings[:h2] = temp_h2_set
 
 # %% Hydrogen parameters
 
