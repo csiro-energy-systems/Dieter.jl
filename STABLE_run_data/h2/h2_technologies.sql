@@ -1,5 +1,6 @@
 -- cf. ../base/technologies.sql for analogue for general non-storage technology
 SELECT
+RegionID AS Region,
 TechID AS H2Technologies,
 Status,
 TechTypeDescriptor AS TechType,
@@ -27,5 +28,6 @@ IsDispatchable AS Dispatchable,
 IsStorage AS Storage,
 IsHybrid AS Hybrid
 FROM
-H2_Tech
+H2_Tech JOIN Regions
+WHERE RegionType = 'TxZone'
 -- WHERE FuelType = 'Hydrogen'

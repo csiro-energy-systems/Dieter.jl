@@ -1,1 +1,1 @@
-SELECT * FROM Inertia_Require
+SELECT * FROM Tech_Inertia_Require

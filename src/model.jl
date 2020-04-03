@@ -619,7 +619,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     next!(prog)
     println("\n")
-
+#=
     @info "Hydrogen: Variable upper bound on power-to-gas."
     @constraint(m, MaxP2G[p2g=P2G,h=Hours],
         H2_P2G[p2g,h] <= time_ratio * N_P2G[p2g]
@@ -661,7 +661,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     # StartLevel[n,gs] * N_GS[(n,gs)]
-
+=#
     next!(prog)
     println("\n")
 

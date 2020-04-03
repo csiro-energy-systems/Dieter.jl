@@ -19,14 +19,16 @@ function parse_h2_technologies!(dtr::DieterModel, df::DataFrame)
 end
 
 function calc_inv_gas!(dtr::DieterModel)
+    Nodes_H2Tech = dtr.sets[:Nodes_H2Tech]
+
     T = dtr.sets[:H2Technologies]
     oc = dtr.parameters[:H2OvernightCost]
     lt = dtr.parameters[:Lifetime]
     i = dtr.settings[:interest]
 
-    dict = Dict(t => oc[t]*annuity(i, lt[t]) for t in T)
+    dict = Dict((n,t) => oc[n,t]*annuity(i, lt[n,t]) for (n,t) in Nodes_H2Tech if t in T)
     update_dict!(dtr.parameters, :InvestmentCost, dict)
     # for (k,v) in dict update_dict!(dtr.parameters[:InvestmentCost], k, v) end
-
-    return nothing
+    return dict
+    # return nothing
 end

@@ -184,13 +184,6 @@ df_costES = @linq df_costES |> where(:Scenario .== Scen_Map[ScenarioName])
 params_costES = Dieter.map_idcol(df_costES, [:Technologies], skip_cols=Symbol[:Scenario])
 for (k,v) in params_costES Dieter.update_dict!(dtr.parameters, k, v) end
 
-# %% Hydrogen parameters
-
-# fileDict["h2_technologies"] = joinpath(datapath,"base","h2_technologies.sql")
-dfDict["h2_technologies"] = parse_file(fileDict["h2_technologies"]; dataname=dataname)
-parse_h2_technologies!(dtr, dfDict["h2_technologies"])
-
-
 # %% Synchronous condensers
 # Synchronous condenser with flywheel - cost in $ per inertial units of `MWs`
 
@@ -572,7 +565,29 @@ dtr.sets[:Nodes_NonDispatch] = intersect(dtr.sets[:Nodes_NonDispatch],dtr.sets[:
 calc_base_parameters!(dtr)
 
 # %% Extensions
+
+# # Hydrogen
+fileDict["h2_technologies"] = joinpath(datapath,"h2","h2_technologies.sql")
+dfDict["h2_technologies"] = parse_file(fileDict["h2_technologies"]; dataname=dataname)
+
+Dieter.parse_h2_technologies!(dtr, dfDict["h2_technologies"])
+
+rel_node_h2tech = create_relation(dfDict["h2_technologies"],:Region,:H2Technologies,:Efficiency)
+Nodes = dtr.sets[:Nodes]
+H2Technologies = dtr.sets[:H2Technologies]
+dtr.sets[:Nodes_H2Tech] = Dieter.tuple2_filter(rel_node_h2tech, Nodes, H2Technologies)
+
+Dieter.calc_inv_gas!(dtr)
+
+temp_h2_set = dtr.settings[:h2]
+dtr.settings[:h2] = missing
 Dieter.parse_extensions!(dtr,dataname=sql_db_path)
+dtr.settings[:h2] = temp_h2_set
+
+# %% Hydrogen parameters
+
+# dfDict["h2_technologies"] = parse_file(fileDict["h2_technologies"]; dataname=dataname)
+# Dieter.parse_h2_technologies!(dtr, dfDict["h2_technologies"])
 
 
 # %% Initialise model

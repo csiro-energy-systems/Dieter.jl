@@ -52,6 +52,7 @@ end
 
 function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString="")
 
+    fileDict = dtr.data["files"]
     dfDict = dtr.data["dataframes"]
 
     ## EV
