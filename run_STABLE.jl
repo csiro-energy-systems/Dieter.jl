@@ -24,14 +24,15 @@ using Dates
 
 run_timestamp = "$(Date(Dates.now()))-H$(hour(now()))"
 
-# ScenarioName = "Scen1_BAU"
-ScenarioName = "Scen2_DDC"
+ScenarioName = "Scen1_BAU"
+# ScenarioName = "Scen2_DDC"
 Scen_Map = Dict("Scen1_BAU" => "4deg", "Scen2_DDC" => "2deg")
 # Specfied Year for the scenario setting:
 ScenarioYear = 2030
 ScYr_Sym = Symbol("FYE$ScenarioYear")
 
 NoNewGas = false
+NoNewDistillate = false
 Note = "Testing"
 
 BattEnergyType = "N_BattEnergy"
@@ -168,6 +169,20 @@ if NoNewGas
       end
 end
 
+# Remove new distillate if specified:
+if NoNewDistillate
+      DistillateTech_New = @linq dfDict["tech"] |>
+                  where(:Status .== "NewEntrant", occursin.(r"Distillate",:FuelType)) |>
+                  select(:Technologies)
+      DistillateTech_New = (unique(DistillateTech_New,:Technologies))[!,:Technologies]
+
+      dfDict["map_node_tech"] = @byrow! dfDict["map_node_tech"] begin
+            if in(:Technologies,DistillateTech_New)
+                  :IncludeFlag = 0
+            end
+      end
+end
+
 # # New capital / overnight costs
 fileDict["capital_costs"] = joinpath(datapath,"base","capital_costs.sql")
 dfDict["capital_costs"] = parse_file(fileDict["capital_costs"]; dataname=dataname)
@@ -275,8 +290,9 @@ dfDict["carbon_param"] = parse_file(fileDict["carbon_param"]; dataname=dataname)
 
 Scen_co2 = @where(dfDict["carbon_param"], :ScenarioName .== ScenarioName, :ScenarioYear .== ScenarioYear)
 # Scen_co2[!, :CarbonPrice][1]
-dtr.settings[:co2] = Scen_co2[!,:CarbonPrice][1]
-dtr.settings[:carbon_budget] = Scen_co2[!,:CarbonBudget][1]
+dtr.settings[:co2] = Scen_co2[!,:CarbonPrice][1]  # Units in $/t-CO2
+Mt_To_t = 1000 #  convert Mega-tonnes to tonnes
+dtr.settings[:carbon_budget] = Mt_To_t*Scen_co2[!,:CarbonBudget][1]  # Data units in Mt-CO2, convert to t-CO2
 
 # Add a Carbon Content column with zero values
 if !in(:CarbonContent, names(dfDict["tech"]))
@@ -678,6 +694,26 @@ end
 #             JuMP.fix(N_TECH[(n,t)], dtr.settings[:coal_adjust]*ExistingCapDict[(n,t)]; force=true)
 #       end
 # end
+
+# %% Compatibility check between Minimum Stable Generation constraint `MinStableGeneration`,
+# and the maximum carbon allowance / CarbonBudget constraint `CarbonBudgetLimit`:
+
+# periods = round(Int,Dieter.hoursInYear*(2/timestep))
+# time_ratio = Dieter.hoursInYear//periods
+MinStableGen = par[:MinStableGen]
+FixedStableCap = filter(x -> x[1] in keys(MinStableGen), FixCapDict)
+MinStableGenTotal = sum(MinStableGen[k]*FixCapDict[k] for k in keys(MinStableGen))
+
+CarbonBudget = dtr.settings[:carbon_budget]
+CarbonContent = dtr.parameters[:CarbonContent]
+Efficiency = dtr.parameters[:Efficiency]
+
+MinStableCarbon = sum((CarbonContent[k]/Efficiency[k])*MinStableGen[k]*FixCapDict[k]
+                        for k in keys(MinStableGen) )
+
+if MinStableCarbon >= CarbonBudget
+      error("Dieter:STABLE-data-check: The minimum level of carbon from min. stable generation exceeds the carbon budget.")
+end
 
 # %% Hydro reservoir constraints:
 
