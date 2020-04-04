@@ -672,7 +672,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         + H2Demand
     );
 =#
-    @info "Hydrogen: gas storage balance."
+    @info "Hydrogen: gas storage mass balance."
     @constraint(m, GasStorageBalance[(n,gs)=Nodes_GasStorages,h=Hours2],
         H2_GS_L[(n,gs), h] == H2_GS_L[(n,gs), h-1] + H2_GS_IN[(n,gs), h] - H2_GS_OUT[(n,gs), h]
     );

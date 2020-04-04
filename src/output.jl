@@ -5,6 +5,11 @@ import Serialization
 import CSV
 import XLSX
 
+# timestep = 2
+timestep = dtr.settings[:timestep]
+periods = round(Int,Dieter.hoursInYear*(2/timestep))
+time_ratio = Dieter.hoursInYear//periods
+
 prepare_df_xlsx(df) = ( collect(DataFrames.eachcol(df)), DataFrames.names(df) )
 
 function remove_all_empty!(dict::Dict)
@@ -23,14 +28,13 @@ elseif Base.Sys.iswindows()
 end
 
 run_timestamp = scen_settings[:scen]
+# run_timestamp = "2020-04-04-H18-Scen1_BAU-ScYr2030-Testing"
 results_filename = run_timestamp*"-results-Julia_Serial.dat"
 results_read_filename = joinpath(resultsdir,results_filename)
 #
-
-#
 # resultsIndex = generate_results!(dtr)
 # res = dtr.results
-
+# # or:
 # res = Serialization.deserialize(results_read_filename)
 
 xlsx_output_file = joinpath(resultsdir,"STABLE_summary-$(run_timestamp).xlsx")
@@ -41,6 +45,29 @@ resSplit = deepcopy(res)
 delete!(resSplit,:Z)
 remove_all_empty!(resSplit)
 
+# %% Add Curtailment
+Nodes_Avail_Techs = dtr.sets[:Nodes_Avail_Techs]
+Hours = dtr.sets[:Hours]
+Availability = dtr.parameters[:Availability]
+N_TECH_Dict = Dict(eachrow(res[:N_TECH]))
+
+df_Gen_Avail = filter(row -> row[:Nodes_Techs] in Nodes_Avail_Techs, res[:G])
+# G_Dict = Dict{Any,Float64}()
+# for row in eachrow(df_Gen_Avail)
+#     G_Dict[row[:Nodes_Techs],row[:Hours]] = row[:Value]
+# end
+
+df_CU = @byrow! df_Gen_Avail begin
+            @newcol CU::Array{Float64}
+            (n,t) = :Nodes_Techs
+            h = :Hours
+            G = :Value
+            :CU = Availability[n,t,h] * time_ratio * N_TECH_Dict[(n,t)] - G
+        end
+
+resSplit[:CU] = df_CU[!,[:Nodes_Techs, :Hours, :CU]]
+DataFrames.rename!(resSplit[:CU],Dict(:CU => :Value))
+
 # %% Define how to split Tuples in the results.
 
 # The first Symbol is the column to split,
@@ -49,6 +76,7 @@ remove_all_empty!(resSplit)
 resultsSplitIndex = [
     # :Z => [],
     :G => [:Nodes_Techs, [:Nodes, :Technologies],[:Hours,:Value]],
+    :CU => [:Nodes_Techs, [:Nodes, :Technologies],[:Hours,:Value]],
     :G_UP => [:Nodes_Dispatch, [:Nodes, :Technologies],[:Hours,:Value]],
     :G_DO => [:Nodes_Dispatch, [:Nodes, :Technologies],[:Hours,:Value]],
     :G_REZ => [],
@@ -61,25 +89,43 @@ resultsSplitIndex = [
     :N_STO_P => [:Nodes_Storages, [:Nodes, :Technologies],[:Value]],
     :N_RES_EXP => [],
     :N_SYNC => [],
-    :FLOW => [:Arcs,[:From,:To],[:Hours,:Value]]
+    :FLOW => [:Arcs,[:From,:To],[:Hours,:Value]],
+    :H2_P2G => [:Nodes_P2G, [:Nodes, :Technologies],[:Hours,:Value]],
+    :H2_G2P => [:Nodes_G2P, [:Nodes, :Technologies],[:Hours,:Value]],
+    :H2_GS_L => [:Nodes_GasStorages, [:Nodes, :Technologies],[:Hours,:Value]],
+    :H2_GS_IN => [:Nodes_GasStorages, [:Nodes, :Technologies],[:Hours,:Value]],
+    :H2_GS_OUT => [:Nodes_GasStorages, [:Nodes, :Technologies],[:Hours,:Value]],
+    :N_P2G => [:Nodes_P2G, [:Nodes, :Technologies],[:Value]],
+    :N_G2P => [:Nodes_G2P, [:Nodes, :Technologies],[:Value]],
+    :N_GS => [:Nodes_GasStorages, [:Nodes, :Technologies],[:Value]]
 ]
 
-std_sort = [:Technologies, :Nodes,:Hours]
+std_sort = [:Technologies, :Nodes]
+std_sort_hours = [:Technologies, :Nodes, :Hours]
 sortIndex = Dict(
-    :G => std_sort,
-    :G_UP => std_sort,
-    :G_DO => std_sort,
+    :G => std_sort_hours,
+    :CU => std_sort_hours,
+    :G_UP => std_sort_hours,
+    :G_DO => std_sort_hours,
     :G_REZ => [:REZones],
     :G_TxZ => [:TxZones],
-    :STO_IN => std_sort,
-    :STO_OUT => std_sort,
-    :STO_L => std_sort,
-    :N_TECH => [:Technologies, :Nodes],
-    :N_STO_E => [:Technologies, :Nodes],
-    :N_STO_P => [:Technologies, :Nodes],
+    :STO_IN => std_sort_hours,
+    :STO_OUT => std_sort_hours,
+    :STO_L => std_sort_hours,
+    :N_TECH => std_sort,
+    :N_STO_E => std_sort,
+    :N_STO_P => std_sort,
     :N_RES_EXP => [:REZones],
     :N_SYNC => [:DemandRegion],
-    :FLOW => [:From,:To]
+    :FLOW => [:From,:To],
+    :H2_P2G => std_sort_hours,
+    :H2_G2P => std_sort_hours,
+    :H2_GS_L => std_sort_hours,
+    :H2_GS_IN => std_sort_hours,
+    :H2_GS_OUT => std_sort_hours,
+    :N_P2G => std_sort,
+    :N_G2P => std_sort,
+    :N_GS => std_sort
 )
 
 # %% Write results to a regular format using Excel .xlsx files
@@ -88,10 +134,12 @@ sortIndex = Dict(
 # df_flow = split_df_tuple(res[:FLOW],:Arcs,[:From,:To])
 
 for (sym, V) in resultsSplitIndex
-    if length(V) > 1 && typeof(V[1]) <: Symbol
-        Dieter.split_df_tuple!(resSplit[sym],V[1],V[2])
-        DataFrames.select!(resSplit[sym],[V[2]...,V[3]...])
-        # println(sym," ",[V[2]...,V[3]...])
+    if sym in keys(resSplit)
+        if length(V) > 1 && typeof(V[1]) <: Symbol
+            Dieter.split_df_tuple!(resSplit[sym],V[1],V[2])
+            DataFrames.select!(resSplit[sym],[V[2]...,V[3]...])
+            # println(sym," ",[V[2]...,V[3]...])
+        end
     end
 end
 
@@ -148,6 +196,23 @@ resSplit[:TxZ_GEN] = @where(resSplit[:G], rel_node_tech_txz.(:Nodes,:Technologie
 
 # %% Generation of renewables:
 resSplit[:REZ_GEN] = @where(resSplit[:G], rel_node_tech_rez.(:Nodes,:Technologies) .== true)
+resSplit[:CU_GEN] = @where(resSplit[:CU], rel_node_tech_rez.(:Nodes,:Technologies) .== true)
+
+resSplit[:REZ_GEN_CU] = join(resSplit[:REZ_GEN], resSplit[:CU_GEN], on=[:Nodes, :Technologies,:Hours], kind = :left)
+
+# resSplit[:REZ_GEN_CU] = @byrow! resSplit[:REZ_GEN_CU] if ismissing(:CU); :CU = 0 end
+resSplit[:REZ_GEN_CU] = @byrow! resSplit[:REZ_GEN_CU] begin
+            @newcol AvailCap::Array{Float64}
+            n = :Nodes
+            t = :Technologies
+            h = :Hours
+            if ismissing(:CU)
+                :CU = 0
+                :AvailCap = time_ratio * N_TECH_Dict[(n,t)]
+            else #if !ismissing(:CU)
+                :AvailCap = Availability[n,t,h] * time_ratio * N_TECH_Dict[(n,t)]
+            end
+        end
 
 # %% Storage:
 # Filter for absent technologies
@@ -252,7 +317,7 @@ XLSX.openxlsx(xlsx_output_file, mode="w") do xf
 end
 
 CSV.write(joinpath(resultsdir,"$(run_timestamp)-Gen-TxZ.csv"),resSplit[:TxZ_GEN])
-CSV.write(joinpath(resultsdir,"$(run_timestamp)-Gen-REZ.csv"),resSplit[:REZ_GEN])
+CSV.write(joinpath(resultsdir,"$(run_timestamp)-Gen-REZ.csv"),resSplit[:REZ_GEN_CU])
 
 CSV.write(joinpath(resultsdir,"$(run_timestamp)-Storage.csv"),resSplit[:STORAGE])
 CSV.write(joinpath(resultsdir,"$(run_timestamp)-Flow.csv"),resSplit[:FLOW])

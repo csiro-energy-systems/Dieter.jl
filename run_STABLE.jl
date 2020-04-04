@@ -31,6 +31,10 @@ Scen_Map = Dict("Scen1_BAU" => "4deg", "Scen2_DDC" => "2deg")
 ScenarioYear = 2030
 ScYr_Sym = Symbol("FYE$ScenarioYear")
 
+# # If FixExistingCapFlag is `true`, then fix existing capacity to given values,
+# otherwise if `false` just use the existing capacity as an upper bound.
+FixExistingCapFlag = false
+
 NoNewGas = false
 NoNewDistillate = false
 Note = "Testing"
@@ -44,8 +48,10 @@ Reference_Year = Demand_Year # 2019  # Year of data set to use for renewable tra
 Trace_Year = 2030 # Which year to use from the Reference_Year trace dataset
 
 # Technology
-scen_settings =Dict{Symbol,Any}()
+scen_settings = Dict{Symbol,Any}()
 
+scen_settings[:scen_name] = ScenarioName
+scen_settings[:scen_year] = ScenarioYear
 scen_settings[:scen] = run_timestamp*"-$(ScenarioName)-ScYr$(ScenarioYear)-$(Note)"
 scen_settings[:interest] = 0.06
 scen_settings[:cost_scaling] = 1 # 1.0e-6
@@ -53,7 +59,7 @@ scen_settings[:cost_scaling] = 1 # 1.0e-6
 scen_settings[:min_res] = 10
 scen_settings[:ev] = missing
 scen_settings[:heat] = missing
-scen_settings[:h2] = 0  # missing -> H2 not included, any number -> H2 included
+scen_settings[:h2] = missing  # missing -> H2 not included, any number -> H2 included
 
 
 # Half-hourly: timestep=1, Hourly: timestep=2,
@@ -465,6 +471,18 @@ dfDict["load"] = @linq df_OpDem_stack |>
                   transform(DemandRegion = String.(:variable), Load = :value) |>
                   select(:TimeIndex,:DemandRegion,:Load)
 
+# %% Scenario modification of Demand
+fileDict["demand_scenario"] = joinpath(datapath,"base","demand_scenario.sql")
+dfDict["demand_scenario"] = parse_file(fileDict["demand_scenario"]; dataname=dataname)
+# demand_scaling = Dict(eachrow(
+
+df_ds = @where(dfDict["demand_scenario"], :ScenarioName .== ScenarioName) 
+ds_Dict = Dict(eachrow(select(df_ds,:Region,ScYr_Sym)))
+
+dfDict["load"] = @byrow! dfDict["load"] begin
+                        :Load = ds_Dict[:DemandRegion]*:Load
+                  end
+
 # %%
 # CSV.write(joinpath(resultsdir,"$(run_timestamp)-Load.csv"),dfDict["load"])
 parse_load!(dtr, dfDict["load"])
@@ -624,12 +642,6 @@ parse_extensions!(dtr,dataname=sql_db_path)
 # Dieter.parse_extensions!(dtr,dataname=sql_db_path)
 # dtr.settings[:h2] = temp_h2_set
 
-# %% Hydrogen parameters
-
-# dfDict["h2_technologies"] = parse_file(fileDict["h2_technologies"]; dataname=dataname)
-# Dieter.parse_h2_technologies!(dtr, dfDict["h2_technologies"])
-
-
 # %% Initialise model
 
 # Construct an optimizer factory
@@ -674,15 +686,30 @@ ExistingCapDict = filter(x -> x.second > 0, dtr.parameters[:ExistingCapacity])
 # Overwrite with any imposed scenario capacities read via "tech_scenario" files:
 FixCapDict = merge(ExistingCapDict,ScenarioCapacityDict)
 
-# # Fix the capacity of existing generation and storage technologies
-for (n,t) in keys(FixCapDict)
-      if (n,t) in dtr.sets[:Nodes_Techs]
-            JuMP.fix(N_TECH[(n,t)], FixCapDict[(n,t)]; force=true)
+if FixExistingCapFlag == true
+      # # Fix the capacity of existing generation and storage technologies
+      for (n,t) in keys(FixCapDict)
+            if (n,t) in dtr.sets[:Nodes_Techs]
+                  JuMP.fix(N_TECH[(n,t)], FixCapDict[(n,t)]; force=true)
+            end
+            if (n,t) in dtr.sets[:Nodes_Storages]
+                  JuMP.fix(N_STO_P[(n,t)], FixCapDict[(n,t)] ; force=true)
+                  JuMP.fix(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*FixCapDict[(n,t)]; force=true)
+            end
       end
-      if (n,t) in dtr.sets[:Nodes_Storages]
-            JuMP.fix(N_STO_P[(n,t)], FixCapDict[(n,t)] ; force=true)
-            JuMP.fix(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*FixCapDict[(n,t)]; force=true)
+else if FixExistingCapFlag == false
+      # # Fix the capacity of existing generation and storage technologies
+      for (n,t) in keys(FixCapDict)
+            if (n,t) in dtr.sets[:Nodes_Techs]
+                  JuMP.set_upper_bound(N_TECH[(n,t)], FixCapDict[(n,t)])
+            end
+            if (n,t) in dtr.sets[:Nodes_Storages]
+                  JuMP.set_upper_bound(N_STO_P[(n,t)], FixCapDict[(n,t))
+                  JuMP.set_upper_bound(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*FixCapDict[(n,t)])
+            end
       end
+else
+      @warn "The treatment of existing capacity is undefined."
 end
 
 # Coal_ExistingCapDict = Dict([x for x in par[:ExistingCapacity]
