@@ -476,7 +476,7 @@ fileDict["demand_scenario"] = joinpath(datapath,"base","demand_scenario.sql")
 dfDict["demand_scenario"] = parse_file(fileDict["demand_scenario"]; dataname=dataname)
 # demand_scaling = Dict(eachrow(
 
-df_ds = @where(dfDict["demand_scenario"], :ScenarioName .== ScenarioName) 
+df_ds = @where(dfDict["demand_scenario"], :ScenarioName .== ScenarioName)
 ds_Dict = Dict(eachrow(select(df_ds,:Region,ScYr_Sym)))
 
 dfDict["load"] = @byrow! dfDict["load"] begin
@@ -654,9 +654,6 @@ build_model!(dtr,solver,timestep=timestep)
 
 # %% Access model objects for further development:
 
-sets = dtr.sets
-par = dtr.parameters
-
 G = dtr.model.obj_dict[:G]
 N_TECH = dtr.model.obj_dict[:N_TECH]
 N_STO_P = dtr.model.obj_dict[:N_STO_P]
@@ -697,14 +694,14 @@ if FixExistingCapFlag == true
                   JuMP.fix(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*FixCapDict[(n,t)]; force=true)
             end
       end
-else if FixExistingCapFlag == false
+elseif FixExistingCapFlag == false
       # # Fix the capacity of existing generation and storage technologies
       for (n,t) in keys(FixCapDict)
             if (n,t) in dtr.sets[:Nodes_Techs]
                   JuMP.set_upper_bound(N_TECH[(n,t)], FixCapDict[(n,t)])
             end
             if (n,t) in dtr.sets[:Nodes_Storages]
-                  JuMP.set_upper_bound(N_STO_P[(n,t)], FixCapDict[(n,t))
+                  JuMP.set_upper_bound(N_STO_P[(n,t)], FixCapDict[(n,t)])
                   JuMP.set_upper_bound(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*FixCapDict[(n,t)])
             end
       end
@@ -727,7 +724,7 @@ end
 
 # periods = round(Int,Dieter.hoursInYear*(2/timestep))
 # time_ratio = Dieter.hoursInYear//periods
-MinStableGen = par[:MinStableGen]
+MinStableGen = dtr.parameters[:MinStableGen]
 FixedStableCap = filter(x -> x[1] in keys(MinStableGen), FixCapDict)
 MinStableGenTotal = sum(MinStableGen[k]*FixCapDict[k] for k in keys(MinStableGen))
 
@@ -812,6 +809,7 @@ println(dtr.settings)
 solve_model!(dtr)
 resultsIndex = generate_results!(dtr)
 
+# %% Abbreviations:
 sets = dtr.sets
 mod = dtr.model
 par = dtr.parameters
@@ -836,7 +834,16 @@ using Serialization
 # solved_dtr.model = []
 Serialization.serialize(joinpath(resultsdir,results_filename), res)
 
+# timestep = 2
+# timestep = dtr.settings[:timestep]
+# periods = round(Int,Dieter.hoursInYear*(2/timestep))
+# time_ratio = Dieter.hoursInYear//periods
+
+# %% Get the results:
+
 include("src/output.jl")
+
+include("src/write.jl")
 
 # %% Merge results with other runs
 # # include("merge.jl")
