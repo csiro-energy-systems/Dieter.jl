@@ -506,6 +506,16 @@ for (k,v) in Dieter.map_idcol(
                   Dieter.update_dict!(dtr.parameters, k, v)
 end
 
+fileDict["inertia_storage"] = joinpath(datapath,"base","inertia_storage.sql")
+dfDict["inertia_storage"] = parse_file(fileDict["inertia_storage"]; dataname=dataname)
+
+for (k,v) in Dieter.map_idcol(
+            dfDict["inertia_storage"], [:Region,:Technologies], skip_cols=Symbol[])
+                  Dieter.update_dict!(dtr.parameters, k, v)
+end
+
+
+
 fileDict["inertia_require"] = joinpath(datapath,"base","inertia_require.sql")
 dfDict["inertia_require"] = parse_file(fileDict["inertia_require"]; dataname=dataname)
 

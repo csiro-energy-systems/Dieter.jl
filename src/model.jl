@@ -141,6 +141,7 @@ function build_model!(dtr::DieterModel,
     CarbonBudget = dtr.settings[:carbon_budget] # Units: t-CO2
 
     InertialSecs = dtr.parameters[:InertialCoeff]
+    InertialSecsSto = dtr.parameters[:InertialCoeffSto]
     InertiaMinThreshold = dtr.parameters[:InertiaMinThreshold]
     InertiaMinSecure = dtr.parameters[:InertiaMinSecure]
     RequireRatio = dtr.parameters[:RequireRatio]
@@ -450,7 +451,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
           N_SYNC[dr] +
           sum(InertialSecs[t]*G[(n,t),h]/time_ratio
                 for (n,t) in Nodes_Techs if node2DemReg[n] == dr)
-        + sum(InertialSecs[sto]*N_STO_P[(n,sto)]
+        + sum(InertialSecsSto[n,sto]*N_STO_P[(n,sto)]
                 for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
                 >= InertiaMinSecure[dr]*RequireRatio[dr]
     );
