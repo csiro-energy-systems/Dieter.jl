@@ -7,18 +7,32 @@ import Dieter: initialise_set_relation_data!, parse_set_relations!,parse_arcs!, 
 import Dieter: dvalmatch, dkeymatch, split_df_tuple
 
 using JuMP
-import MathOptInterface
+# import MathOptInterface
 import CPLEX
 
 using DataFrames
 using DataFramesMeta
 import DBInterface
 import SQLite
-import CSV
+# import CSV
 import TimeSeries
 using Dates
 # using Tables
 # import XLSX
+
+# %%
+Scenario_Number_Dict = Dict(
+      "Scen1_BAU" => 1,  # Current Trends
+      "Scen2_DDC" => 2,  # Deep Decarbonisation
+      "Scen3_PRP" => 3,  # Prosumer Power
+      "Scen4_DID" => 4,  # De-Industrialisation Death Spiral
+      "Scen5_MAG" => 5,  # Make Australia Great Again
+      "Scen6_NGA" => 6,  # NSW Goes It Alone
+      "Scen7_DCU" => 7,  # The DC Universe
+      "Scen8_LCE" => 8   # Australia's Low Cost Energy Advantage
+)
+
+Scen_Map = Dict("Scen1_BAU" => "Central", "Scen2_DDC" => "HighVRE")
 
 # %% Scenario Settings (to customise by modeller)
 
@@ -26,10 +40,11 @@ run_timestamp = "$(Date(Dates.now()))-H$(hour(now()))"
 
 ScenarioName = "Scen1_BAU"
 # ScenarioName = "Scen2_DDC"
-Scen_Map = Dict("Scen1_BAU" => "4deg", "Scen2_DDC" => "2deg")
+ScenarioNumber = Scenario_Number_Dict["Scen1_BAU"]
+
 # Specfied Year for the scenario setting:
 ScenarioYear = 2030
-ScYr_Sym = Symbol("FYE$ScenarioYear")
+ScYr_Sym = Symbol("FYE$ScenarioYear")  # Scenario year symbol
 
 # # If FixExistingCapFlag is `true`, then fix existing capacity to given values,
 # otherwise if `false` just use the existing capacity as an upper bound.
@@ -43,9 +58,9 @@ BattEnergyType = "N_BattEnergy"
 HydPumpEnergyType = "N_HydPumpEnergy"
 
 # Year parameters
-Demand_Year = 2019 # Financial year 2018-2019
-Reference_Year = Demand_Year # 2019  # Year of data set to use for renewable traces
-Trace_Year = 2030 # Which year to use from the Reference_Year trace dataset
+WeatherYear = 2019 # e.g if 2019, this is Financial year 2018-2019
+ReferenceYear = WeatherYear # Year of data set to use for renewable traces
+TraceYear = 2030 # Which year to use from the ReferenceYear trace dataset
 
 # Technology
 scen_settings = Dict{Symbol,Any}()
@@ -128,6 +143,8 @@ fileDict = dtr.data["files"]
 dfDict["nodes"] = parse_file(fileDict["nodes"]; dataname=dataname)
 parse_nodes!(dtr,dfDict["nodes"])
 
+DemandRegions = dtr.sets[:DemandRegions]
+
 df_nodes = dfDict["nodes"]
 node2DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
 
@@ -193,7 +210,7 @@ end
 fileDict["capital_costs"] = joinpath(datapath,"base","capital_costs.sql")
 dfDict["capital_costs"] = parse_file(fileDict["capital_costs"]; dataname=dataname)
 
-# Rename the ScenarioYear column with ScenCostPower:
+# Rename the ScenarioYear column as `:ScenCostPower`:
 df_cap_costs = DataFrames.rename!(
       dfDict["capital_costs"][!,[:Technologies, :Scenario, ScYr_Sym]],
       Dict(ScYr_Sym => :ScenCostPower)
@@ -442,10 +459,25 @@ parse_arcs!(dtr,dfDict["arcs"])
 # e.g. fileDict["load"] = joinpath(datapath,"base","load.csv")
 # dfDict["load"] = parse_file(fileDict["load"]; dataname=dataname)
 
-load_trace_datapath = joinpath(trace_read_path,"Load_FYE$(Demand_Year).csv")
+# load_trace_datapath = joinpath(trace_read_path,"Demand_Traces","Load_FYE$(Demand_Year).csv")
+load_trace_datapath = joinpath(trace_read_path,"Demand_Traces")
+load_trace_filename = "wy_$(WeatherYear)_scen_$(ScenarioNumber)_AllRegions.csv"
+load_trace_filepath = joinpath(load_trace_datapath,load_trace_filename)
 
-# The operational demand table has time stamps for keys and one column per region.
-df_OpDem = DataFrame(CSV.File(load_trace_datapath))
+@assert isfile(load_trace_filepath) "File $(load_trace_filename) not found in $(load_trace_datapath)"
+
+# The operational demand table has time-stamps for keys and one column per region.
+# This can be read using TimeSeries.jl as TimeSeries.readtimearray()
+ta_OpDem = TimeSeries.readtimearray(load_trace_filepath)
+# This could also be read using CSV.jl as CSV.File(...)
+# df_OpDem = DataFrame(CSV.File(load_trace_filepath))
+
+# Filter by Scenario Year
+Financial_Year_Array = [Dates.DateTime(ScenarioYear-1,07,01,00,00,00):Dates.Minute(30):Dates.DateTime(ScenarioYear,06,30,23,30,00)]
+
+ta_OpDem = ta_OpDem[Financial_Year_Array...]
+
+df_OpDem = DataFrame(ta_OpDem)
 
 # Transformations of the raw data:
 
@@ -455,34 +487,46 @@ df_OpDem = df_OpDem[1:timestep:end,names(df_OpDem)]
 # ta_OpDem = TimeArray(df_OpDem, timestamp = :datetime)
 dropmissing!(df_OpDem)
 insertcols!(df_OpDem, 1, TimeIndex=collect(1:nrow(df_OpDem)))
-select!(df_OpDem, Not(:datetime))
+select!(df_OpDem, Not(:timestamp))
 
-reg_rename_dict = Dict(:nsw1 => :NSW1,
-                       :qld1 => :QLD1,
-                       :sa1 => :SA1,
-                       :tas1 => :TAS1,
-                       :vic1 => :VIC1)
-region_names = sort(collect(values(reg_rename_dict)))
-DataFrames.rename!(df_OpDem, reg_rename_dict...)
+# reg_rename_dict = Dict(:nsw1 => :NSW1,
+#                        :qld1 => :QLD1,
+#                        :sa1 => :SA1,
+#                        :tas1 => :TAS1,
+#                        :vic1 => :VIC1)
+# region_names = sort(collect(values(reg_rename_dict)))
+# DataFrames.rename!(df_OpDem, reg_rename_dict...)
 
-df_OpDem_stack = stack(df_OpDem, region_names, :TimeIndex)
+df_OpDem_stack = stack(df_OpDem, Symbol.(DemandRegions), :TimeIndex)
                         # variable_name=:DemandRegion, value_name=:Load)
 dfDict["load"] = @linq df_OpDem_stack |>
                   transform(DemandRegion = String.(:variable), Load = :value) |>
                   select(:TimeIndex,:DemandRegion,:Load)
 
-# %% Scenario modification of Demand
-fileDict["demand_scenario"] = joinpath(datapath,"base","demand_scenario.sql")
-dfDict["demand_scenario"] = parse_file(fileDict["demand_scenario"]; dataname=dataname)
-# demand_scaling = Dict(eachrow(
+# %% Scenario modification of Demand :
+#  Note : not needed if input data is correct without modification
+# fileDict["demand_scenario"] = joinpath(datapath,"base","demand_scenario.sql")
+# dfDict["demand_scenario"] = parse_file(fileDict["demand_scenario"]; dataname=dataname)
 
+# If dfDict["demand_scenario"] corresponds to a scaling of demand,
+# │ Row │ ScenarioName │ Region │ FYE2020 │ FYE2021  │ FYE2022  │ FYE2023  │ FYE2024  │
+# │     │ String       │ String │ Float64 │ Float64  │ Float64  │ Float64  │ Float64  │
+# ├─────┼──────────────┼────────┼─────────┼──────────┼──────────┼──────────┼──────────┤
+# │ 1   │ Scen1_BAU    │ NSW1   │ 1.0     │ 0.99591  │ 0.991982 │ 0.985298 │ 0.979469 │
+# │ 2   │ Scen1_BAU    │ QLD1   │ 1.0     │ 1.01197  │ 1.02199  │ 1.03051  │ 1.03456  │
+# ...
+# │ 6   │ Scen2_DDC    │ NSW1   │ 1.0     │ 0.99911  │ 0.996888 │ 0.992015 │ 0.988109 │
+# │ 7   │ Scen2_DDC    │ QLD1   │ 1.0     │ 1.01334  │ 1.02574  │ 1.03758  │ 1.04457  │
+# ...
+# we would use code like this:
+#=
 df_ds = @where(dfDict["demand_scenario"], :ScenarioName .== ScenarioName)
 ds_Dict = Dict(eachrow(select(df_ds,:Region,ScYr_Sym)))
 
 dfDict["load"] = @byrow! dfDict["load"] begin
                         :Load = ds_Dict[:DemandRegion]*:Load
                   end
-
+=#
 # %%
 # CSV.write(joinpath(resultsdir,"$(run_timestamp)-Load.csv"),dfDict["load"])
 parse_load!(dtr, dfDict["load"])
@@ -562,8 +606,8 @@ dfDict["avail"] = DataFrame()
 sqlquery_rez_trace = DBInterface.execute(SQLite.DB(sql_db_path), "SELECT * FROM REZ_Trace_Map") #; stricttypes=false
 trace_corr = Dieter.SQLqueryToDict(sqlquery_rez_trace)
 
-wind_traces_path = joinpath(trace_read_path,"REZ_Wind_Traces_RefYear$(Reference_Year)_FYE$(Trace_Year).csv")
-solar_traces_path = joinpath(trace_read_path,"REZ_Solar_Traces_RefYear$(Reference_Year)_FYE$(Trace_Year).csv")
+wind_traces_path = joinpath(trace_read_path,"REZ_Traces","REZ_Wind_Traces_RefYear$(ReferenceYear)_FYE$(TraceYear).csv")
+solar_traces_path = joinpath(trace_read_path,"REZ_Traces","REZ_Solar_Traces_RefYear$(ReferenceYear)_FYE$(TraceYear).csv")
 
 dtr.data["files"]["Wind"] = wind_traces_path
 dtr.data["files"]["Solar"] = solar_traces_path
@@ -576,7 +620,10 @@ tech_subset["Solar"] = ["SolarPV_Exi", "SolarPV_New", "SolThermal_New"]
 for tech_class in ["Wind", "Solar"]
       traces_path = dtr.data["files"][tech_class]
       # Read trace data:
+      # df_traces = DataFrame(CSV.File(traces_path))
+      # This could also be read using TimeSeries.jl as TimeSeries.readtimearray()
       df_traces = DataFrame(TimeSeries.readtimearray(traces_path))
+
 
       # If timestep = 2, we obtain an hourly approximation of half-hour data by sampling on every second data point:
       df_traces = df_traces[1:timestep:end,names(df_traces)]
