@@ -14,7 +14,7 @@ using SQLite
 # # using Missings
 
 using JuMP
-import MathOptInterface
+# import MathOptInterface
 # const MOI = MathOptInterface
 # @reexport using JuMP
 using ProgressMeter

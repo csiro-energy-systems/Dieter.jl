@@ -86,7 +86,7 @@ scen_settings[:cost_scaling] = 1 # 1.0e-6
 scen_settings[:min_res] = 10
 scen_settings[:ev] = missing
 scen_settings[:heat] = missing
-scen_settings[:h2] = missing  # missing -> H2 not included, any number -> H2 included
+scen_settings[:h2] = 0  # missing -> H2 not included, any number -> H2 included
 
 
 # Half-hourly: timestep=1, Hourly: timestep=2,
@@ -174,26 +174,62 @@ dfDict["map_node_tech"] = parse_file(fileDict["map_node_tech"]; dataname=datanam
 dfDict["map_node_storages"] = parse_file(fileDict["map_node_storages"]; dataname=dataname)
 dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
 
-# Relation to determine which (Nodes,Technologies) pairs are included in the model:
-rel_node_tech = create_relation(dfDict["map_node_tech"],:Nodes,:Technologies,:IncludeFlag)
-rel_node_storages = create_relation(dfDict["map_node_storages"],:Nodes,:Technologies,:IncludeFlag)
+# %% Add VPP battery type (included as existing capacity)
 
-# %% Renewable Energy Targets
+# Split VPP state capacities evenly across TxZones in that state:
+RegionTxSplit = Dict("NSW1" => 4, "VIC1" => 4, "QLD1" => 4, "SA1" => 3, "TAS1" => 1)
 
-# Load in the complete RET scenario data sets:
-fileDict["re_targets"] = joinpath(datapath,"base","re_targets.sql")
-dfDict["re_targets"] = parse_file(fileDict["re_targets"]; dataname=dataname)
+#  Virtual power plant (VPP) battery uptake data:
+fileDict["vpp_uptake"] = joinpath(datapath,"base","vpp_uptake.sql")
+dfDict["vpp_uptake"] = parse_file(fileDict["vpp_uptake"]; dataname=dataname)
 
-# Filter the data set for the current Scenario, and put in the model settings:
-dtr.settings[:min_res] = Dict(eachrow(
-      @linq dfDict["re_targets"] |>
-      where(:ScenarioName .== ScenarioName, :ScenarioYear .== ScenarioYear) |>
-      select(:Region, :MinRET)
-      ))
+df_vpp_data = @linq dfDict["vpp_uptake"] |>
+            where(
+                  :Year .== ScenarioYear,
+                  :VPP_Scenario .== Scenario_BattVPP_Dict[ScenarioName]
+            ) |>
+            select(:Region, :ValueType, :Data)
 
+df_vpp_data = unstack(df_vpp_data,:ValueType,:Data)
 
-# %% Additional parameters
+df_vpp_data = @byrow! df_vpp_data begin
+           @newcol Ratio::Array{Float64}
+           :Ratio = :Energy/:Power
+       end
 
+VPP_Power_Dict = Dict(zip(df_vpp_data[!,:Region],df_vpp_data[!,:Power]))
+VPP_Ratio_Dict = Dict(zip(df_vpp_data[!,:Region],df_vpp_data[!,:Ratio]))
+
+# Copy off on the New Entrant Battery Storage
+df_new_vpp = @where(dfDict["storage"], :Storages .== "BattStor_New")
+
+df_add_vpp = @byrow! df_new_vpp begin
+                  # Annotate with the Demand Region:
+                  @newcol DemandRegion::Array{String}
+                  :DemandRegion = node2DemReg[:Region]
+                  # Change the names and capacties
+                  :Storages = "BattVPP_Exi"
+                  :Status = "GenericExisting"
+                  :ExistingCapacity = VPP_Power_Dict[:DemandRegion]/RegionTxSplit[:DemandRegion]
+                  :MaxEnergyToPowerRatio = VPP_Ratio_Dict[:DemandRegion]
+            end
+
+df_add_vpp_map = @byrow! df_add_vpp begin
+                  # Annotate with the Demand Region:
+                  @newcol IncludeFlag::Array{Int64}
+                  :IncludeFlag = 1
+            end
+
+rename!(df_add_vpp_map, Dict(:Region => :Nodes, :Storages => :Technologies))
+select(df_add_vpp_map, :Nodes,:Technologies, :IncludeFlag)
+
+# Add into data:
+append!(dfDict["storage"], select(df_add_vpp, Not(:DemandRegion)))
+append!(dfDict["map_node_storages"], select(df_add_vpp_map, :Nodes,:Technologies, :IncludeFlag))
+
+# %% Additional modifications to included technologies:
+
+# # Remove technologies if directed:
 # Remove new gas if specified:
 if NoNewGas
       GasTech_New = @linq dfDict["tech"] |>
@@ -222,7 +258,27 @@ if NoNewDistillate
       end
 end
 
-# # New capital / overnight costs
+# %%  Relations to determine which (Nodes,Technologies) pairs are included in the model:
+rel_node_tech = create_relation(dfDict["map_node_tech"],:Nodes,:Technologies,:IncludeFlag)
+rel_node_storages = create_relation(dfDict["map_node_storages"],:Nodes,:Technologies,:IncludeFlag)
+
+# %% Renewable Energy Targets
+
+# Load in the complete RET scenario data sets:
+fileDict["re_targets"] = joinpath(datapath,"base","re_targets.sql")
+dfDict["re_targets"] = parse_file(fileDict["re_targets"]; dataname=dataname)
+
+# Filter the data set for the current Scenario, and put in the model settings:
+dtr.settings[:min_res] = Dict(eachrow(
+      @linq dfDict["re_targets"] |>
+      where(:ScenarioName .== ScenarioName, :ScenarioYear .== ScenarioYear) |>
+      select(:Region, :MinRET)
+      ))
+
+if dtr.settings[:min_res]["TAS1"] > 100
+      dtr.settings[:min_res]["TAS1"] = 100
+end
+# %% New capital / overnight costs
 fileDict["capital_costs"] = joinpath(datapath,"base","capital_costs.sql")
 dfDict["capital_costs"] = parse_file(fileDict["capital_costs"]; dataname=dataname)
 
@@ -232,7 +288,7 @@ df_cap_costs = DataFrames.rename!(
       Dict(ScYr_Sym => :ScenCostPower)
       )
 # Filter by the current Scenario:
-df_cap_costs = @linq df_cap_costs |> where(:Scenario .== Scen_Map[ScenarioName])
+df_cap_costs = @linq df_cap_costs |> where(:Scenario .== Scen_ISP_Map[ScenarioName])
 
 params_cap_costs = Dieter.map_idcol(df_cap_costs, [:Technologies], skip_cols=Symbol[:Scenario])
 
@@ -247,7 +303,7 @@ df_costES = DataFrames.rename!(
       Dict(ScYr_Sym => :ScenCostEnergy)
       )
 
-df_costES = @linq df_costES |> where(:Scenario .== Scen_Map[ScenarioName])
+df_costES = @linq df_costES |> where(:Scenario .== Scen_ISP_Map[ScenarioName])
 
 params_costES = Dieter.map_idcol(df_costES, [:Technologies], skip_cols=Symbol[:Scenario])
 for (k,v) in params_costES Dieter.update_dict!(dtr.parameters, k, v) end
@@ -300,19 +356,25 @@ for (k,v) in params_txc Dieter.update_dict!(dtr.parameters, k, v) end
 fileDict["tech_scenario"] = joinpath(datapath,"base","tech_scenario.sql")
 dfDict["tech_scenario"] = parse_file(fileDict["tech_scenario"]; dataname=dataname)
 
+df_techscen = @linq dfDict["tech_scenario"] |> where(:ScenarioName .== ScenarioName)
+
 df_techscen = DataFrames.rename!(
-      dfDict["tech_scenario"][!,[:Region, :TechID, ScYr_Sym]],
+      df_techscen[!,[:Region, :TechID, ScYr_Sym]],
       Dict(:TechID => :Technologies, ScYr_Sym => :ScenarioCapacity)
       )
 
 
 # Filter the technology capacities if they are included in our region/technology list:
-df_techscen_inc = @linq df_techscen |> where( rel_node_tech.(:Region, :Technologies) .== true )
+df_techscen_inc = @linq df_techscen |>
+                    where( rel_node_tech.(:Region, :Technologies) .== true )
 # Filter the technology capacities if they are not in our region/technology list:
-df_techscen_exc = @linq df_techscen |> where( rel_node_tech.(:Region, :Technologies) .== false )
+df_techscen_exc = @linq df_techscen |>
+                    where( rel_node_tech.(:Region, :Technologies) .== false )
 
 # TODO: check/review the excluded list of technology capacities to make sure none are excluded unnecessary
+# This includes expanding this to also include storage technology overwrites if needed.
 
+# The following adds the parameter `ScenarioCapacity` to `dtr.parameters`:
 for (k,v) in Dieter.map_idcol(
             df_techscen_inc,
             [:Region, :Technologies],
@@ -329,11 +391,6 @@ ScenarioCapacityDict = dtr.parameters[:ScenarioCapacity]
 # This will be used later to overwrite and fix certain capacity in the model.
 # It may be necessary to check technologies included here;
 # particularly certain fossil fuel tech. types like OCGT w. diesel/distillate.
-
-# %% Virtual power plant (VPP) battery uptake data:
-
-fileDict["vpp_uptake"] = joinpath(datapath,"base","vpp_uptake.sql")
-dfDict["vpp_uptake"] = parse_file(fileDict["vpp_uptake"]; dataname=dataname)
 
 
 # %% Carbon
@@ -932,121 +989,6 @@ include("src/write.jl")
 # # include("merge.jl")
 # post_process_results(rdir)
 #
-# %% Filtering results
 
-# Split dataframes with Tuple-type columns using split_df_tuple(), e.g.
-# split_df_tuple(res[:FLOW],:Arcs,[:From,:To])
-# split_df_tuple(res[:N_TECH],:Nodes_Techs,[:Nodes,:Techs])
-
-# df = res[:G]
-df_aug = split_df_tuple(res[:G],:Nodes_Techs,[:Nodes,:Techs])
-# dfDict = dtr.data["dataframes"]
-df_nodes = dfDict["nodes"]
-
-node2DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
-
-df_spatial = join(df_aug,df_nodes,on=:Nodes)
-df_filter = select(df_spatial,[:Nodes,:Techs,:DemandRegion,:Hours,:Value])
-
-dfStates = Dict{String,DataFrame}()
-
-for reg in dtr.sets[:DemandRegions]
-      dfStates[reg] = @linq df_filter |>
-                        where(:DemandRegion .== reg) |>
-                        select(:Nodes,:Techs,:Hours,:Value) |>
-                        by([:Techs,:Hours], Level = sum(:Value))
-end
-
-# df_flow = res[:FLOW]
-df_flow = split_df_tuple(res[:FLOW],:Arcs,[:From,:To])
-
-# Augment with a column showing the Demand Regions of the flow's nodes:
-df_flow[!,:FromRegion] = map(x -> node2DemReg[x], df_flow[!,:From])
-df_flow[!,:ToRegion] = map(x -> node2DemReg[x], df_flow[!,:To])
-
-# Inter-state flow:
-df_interflow = @where(df_flow, :FromRegion .!== :ToRegion)
-
-# %% Plotting
-
-using Plots
-using StatsPlots
-import Plots.PlotMeasures: mm
-using ColorSchemes
-
-# %% Plotting
-
-Hours = dtr.sets[:Hours]
-L = 1:168
-# L = 1:336
-# L = 5000:5336
-
-gr()
-# gr(size=(5000,2000))
-gr(size=(3000,600))
-# plotly()
-# plotly(size=(3000,600))
-
-# DemandReg = "TAS1"
-# p = plot(layout=grid(5,1, height=4*[0.1,0.1,0.1,0.1,0.1]),margin=5mm);
-
-for (count, DemandReg) in enumerate(["NSW1", "QLD1", "VIC1", "SA1", "TAS1"])
-            # Load = dtr.parameters[:Load]
-      Demand = @where(dfDict["load"],:DemandRegion .== DemandReg)
-      df_plot = dfStates[DemandReg]
-      Techs = [Symbol(i) for i in DataFrames.unique(copy(df_plot[!,:Techs]))]
-      NumTechs = length(Techs)
-      # reTechs = reshape(Techs,NumTechs,1)
-
-      df_unstack = unstack(df_plot,:Techs,:Level)
-      p = plot()
-      # @df df_all[L,:] groupedbar(HOURS[L], cols(1:NumTech),  #cols(NumTech:-1:1),
-      @df df_unstack[L,Techs] groupedbar!(p, Hours[L], cols(Techs),
-          # subplot=count,
-          margin=10mm,
-          title=DemandReg,
-          xlabel="Time",
-          fillalpha=0.5,linealpha=0.1,
-          bar_position=:stack,
-          legend=:best,  # `:none`, `:best`, `:right`, `:left`, `:top`, `:bottom`, `:inside`, `:legend`, `:topright`, `:topleft`, `:bottomleft`, `:bottomright`
-          color_palette=:balance) # phase delta rainbow inferno darkrainbow colorwheel
-
-      plot!(Hours[L], [Demand[L,:Load]],label="Demand",
-            # subplot=count,
-            line=4, linecolour=:steelblue,
-            xtickfont = font(10, "Courier"),
-            xlabel="Time (hr)",
-            ylabel="Generation (MW)",
-            )
-      # plot!(p,margin=15mm)
-
-      df_regflow = @linq df_interflow |>
-                    where(:FromRegion .== DemandReg) |>
-                    by(:Hours, Level = sum(:Value))
-
-      plot!(df_regflow[L,:Hours], [df_regflow[L,:Level]],label="Flow",
-            # subplot=count,
-            line=4, linecolour=:red,
-            xtickfont = font(10, "Courier"),
-            xlabel="Time (hr)",
-            ylabel="Generation (MW)",
-            margin=5mm
-            )
-      display(p)
-end
-
-# %% Misc.
-# color_dict = Dict()
-# default_colour = ColorSchemes.leonardo
-# # ColorScheme([Colors.RGB(0.0, 0.0, 0.0), Colors.RGB(1.0, 1.0, 1.0)],
-#       # "custom", "twotone, black and white");
-#       color_dict["Wind Offshore"] = [default_colour[10]];
-#       color_dict["Wind Onshore"] = [default_colour[20]];
-#       color_dict["Solar PV"] = [default_colour[30]];
-#       color_dict["Storages"] = [default_colour[5]];
-#       color_dict["Hydrogen"] = [default_colour[15]];
-#       color_dict["Curtailment"] = [default_colour[25]];
-#
-# marker = (:hexagon, 5, 0.6, :green, stroke(3, 0.2, :black, :dot))
-#
-# plot_all(rdir,color_dict,sector=:ev,marker=marker,legend=true)
+# %% Plot timeseries
+include("src/plot_timeseries.jl")

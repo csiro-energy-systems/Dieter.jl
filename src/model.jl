@@ -683,6 +683,12 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         H2_GS_L[(n,gs), Hours[1]] == StartLevel[n,gs] * N_GS[(n,gs)] + H2_GS_IN[(n,gs),Hours[1]] - H2_GS_OUT[(n,gs),Hours[1]]
     );
 
+    # End level equal to initial level
+    @info "Hydrogen: gas storage end level equal to initial level."
+    @constraint(m, GasStorageLevelEnd[(n,gs)=Nodes_GasStorages],
+        H2_GS_L[(n,gs), Hours[end]] == StartLevel[n,gs] * N_GS[(n,gs)]
+    );
+
     next!(prog)
     println("\n")
 
