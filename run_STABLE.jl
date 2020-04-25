@@ -20,7 +20,7 @@ using Dates
 # using Tables
 # import XLSX
 
-# %%
+# %% Mappings from Scenario designations to parameters
 Scenario_Number_Dict = Dict(
       "Scen1_BAU" => 1,  # Current Trends
       "Scen2_DDC" => 2,  # Deep Decarbonisation
@@ -32,8 +32,20 @@ Scenario_Number_Dict = Dict(
       "Scen8_LCE" => 8   # Australia's Low Cost Energy Advantage
 )
 
-Scen_Map = Dict("Scen1_BAU" => "Central", "Scen2_DDC" => "HighVRE")
+Scen_ISP_Map = Dict("Scen1_BAU" => "Central", "Scen2_DDC" => "HighVRE")
 
+Scen_FuelCost_Map = Dict("Scen1_BAU" => "Neutral", "Scen2_DDC" => "Fast")
+
+Scenario_BattVPP_Dict = Dict(
+      "Scen1_BAU" => 2,  # Current Trends
+      "Scen2_DDC" => 3,  # Deep Decarbonisation
+      "Scen3_PRP" => 4,  # Prosumer Power
+      "Scen4_DID" => 1,  # De-Industrialisation Death Spiral
+      "Scen5_MAG" => 1,  # Make Australia Great Again
+      "Scen6_NGA" => 3,  # NSW Goes It Alone
+      "Scen7_DCU" => 2,  # The DC Universe
+      "Scen8_LCE" => 3   # Australia's Low Cost Energy Advantage
+)
 # %% Scenario Settings (to customise by modeller)
 
 run_timestamp = "$(Date(Dates.now()))-H$(hour(now()))"
@@ -162,6 +174,10 @@ dfDict["map_node_tech"] = parse_file(fileDict["map_node_tech"]; dataname=datanam
 dfDict["map_node_storages"] = parse_file(fileDict["map_node_storages"]; dataname=dataname)
 dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
 
+# Relation to determine which (Nodes,Technologies) pairs are included in the model:
+rel_node_tech = create_relation(dfDict["map_node_tech"],:Nodes,:Technologies,:IncludeFlag)
+rel_node_storages = create_relation(dfDict["map_node_storages"],:Nodes,:Technologies,:IncludeFlag)
+
 # %% Renewable Energy Targets
 
 # Load in the complete RET scenario data sets:
@@ -289,8 +305,16 @@ df_techscen = DataFrames.rename!(
       Dict(:TechID => :Technologies, ScYr_Sym => :ScenarioCapacity)
       )
 
+
+# Filter the technology capacities if they are included in our region/technology list:
+df_techscen_inc = @linq df_techscen |> where( rel_node_tech.(:Region, :Technologies) .== true )
+# Filter the technology capacities if they are not in our region/technology list:
+df_techscen_exc = @linq df_techscen |> where( rel_node_tech.(:Region, :Technologies) .== false )
+
+# TODO: check/review the excluded list of technology capacities to make sure none are excluded unnecessary
+
 for (k,v) in Dieter.map_idcol(
-            df_techscen,
+            df_techscen_inc,
             [:Region, :Technologies],
              skip_cols=Symbol[]
             )
@@ -305,6 +329,12 @@ ScenarioCapacityDict = dtr.parameters[:ScenarioCapacity]
 # This will be used later to overwrite and fix certain capacity in the model.
 # It may be necessary to check technologies included here;
 # particularly certain fossil fuel tech. types like OCGT w. diesel/distillate.
+
+# %% Virtual power plant (VPP) battery uptake data:
+
+fileDict["vpp_uptake"] = joinpath(datapath,"base","vpp_uptake.sql")
+dfDict["vpp_uptake"] = parse_file(fileDict["vpp_uptake"]; dataname=dataname)
+
 
 # %% Carbon
 
@@ -335,10 +365,6 @@ dfDict["tech"] = @byrow! dfDict["tech"] begin
 # dtr.parameters[:CarbonBudget] = scen_settings[:carbon_budget]
 
 # %% Modify data in-frame:
-
-# Relation to determine which (Nodes,Technologies) pairs are included in the model:
-rel_node_tech = create_relation(dfDict["map_node_tech"],:Nodes,:Technologies,:IncludeFlag)
-rel_node_storages = create_relation(dfDict["map_node_storages"],:Nodes,:Technologies,:IncludeFlag)
 
 # Existing capacity
 # sqlquery_exi_cap = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM Existing_Cap"; stricttypes=false);
