@@ -14,7 +14,7 @@ using DataFrames
 using DataFramesMeta
 import DBInterface
 import SQLite
-# import CSV
+import CSV
 import TimeSeries
 using Dates
 # using Tables
@@ -52,11 +52,11 @@ run_timestamp = "$(Date(Dates.now()))-H$(hour(now()))"
 
 ScenarioName = "Scen1_BAU"
 # ScenarioName = "Scen2_DDC"
-ScenarioNumber = Scenario_Number_Dict["Scen1_BAU"]
-
 # Specfied Year for the scenario setting:
 ScenarioYear = 2030
 ScYr_Sym = Symbol("FYE$ScenarioYear")  # Scenario year symbol
+
+ScenarioNumber = Scenario_Number_Dict[ScenarioName]
 
 # # If FixExistingCapFlag is `true`, then fix existing capacity to given values,
 # otherwise if `false` just use the existing capacity as an upper bound.
@@ -66,20 +66,37 @@ NoNewGas = false
 NoNewDistillate = false
 Note = "Testing"
 
+scen_settings = Dict{Symbol,Any}()
+
+scen_types = Dict{Symbol, String}()
 BattEnergyType = "N_BattEnergy"
 HydPumpEnergyType = "N_HydPumpEnergy"
+
+H2ElectrolyserType = "N_Electrolyser"
+H2RecipEngType = "N_RecipH2"
+
+scen_types[:BattEnergyType] = BattEnergyType
+scen_types[:HydPumpEnergyType] = HydPumpEnergyType
+scen_types[:H2ElectrolyserType] = H2ElectrolyserType
+scen_types[:H2RecipEngType] = H2RecipEngType
+
+scen_settings[:scen_types] = scen_types
 
 # Year parameters
 WeatherYear = 2019 # e.g if 2019, this is Financial year 2018-2019
 ReferenceYear = WeatherYear # Year of data set to use for renewable traces
 TraceYear = 2030 # Which year to use from the ReferenceYear trace dataset
 
+scen_settings[:weather_year] = WeatherYear
+scen_settings[:trace_year] = TraceYear
 # Technology
-scen_settings = Dict{Symbol,Any}()
 
 scen_settings[:scen_name] = ScenarioName
 scen_settings[:scen_year] = ScenarioYear
 scen_settings[:scen] = run_timestamp*"-$(ScenarioName)-ScYr$(ScenarioYear)-$(Note)"
+
+scenario_timestamp = scen_settings[:scen]
+
 scen_settings[:interest] = 0.06
 scen_settings[:cost_scaling] = 1 # 1.0e-6
 # Modify the :min_res setting over [0,100] and rerun to see comparison.
@@ -289,11 +306,11 @@ df_cap_costs = DataFrames.rename!(
       )
 # Filter by the current Scenario:
 df_cap_costs = @linq df_cap_costs |> where(:Scenario .== Scen_ISP_Map[ScenarioName])
-
+# Read into model parameters:
 params_cap_costs = Dieter.map_idcol(df_cap_costs, [:Technologies], skip_cols=Symbol[:Scenario])
-
 for (k,v) in params_cap_costs Dieter.update_dict!(dtr.parameters, k, v) end
 
+# # Energy storage technologies:
 fileDict["cost_energy_storage"] = joinpath(datapath,"base","cost_energy_storage.sql")
 dfDict["cost_energy_storage"] = parse_file(fileDict["cost_energy_storage"]; dataname=dataname)
 
@@ -302,12 +319,27 @@ df_costES = DataFrames.rename!(
       dfDict["cost_energy_storage"][!,[:Technologies, :Scenario, ScYr_Sym]],
       Dict(ScYr_Sym => :ScenCostEnergy)
       )
-
+# Filter by the current Scenario:
 df_costES = @linq df_costES |> where(:Scenario .== Scen_ISP_Map[ScenarioName])
-
+# Read into model parameters:
 params_costES = Dieter.map_idcol(df_costES, [:Technologies], skip_cols=Symbol[:Scenario])
 for (k,v) in params_costES Dieter.update_dict!(dtr.parameters, k, v) end
 
+# # Hydrogen technologies:
+fileDict["cost_h2"] = joinpath(datapath,"h2","cost_h2.sql")
+dfDict["cost_h2"] = parse_file(fileDict["cost_h2"]; dataname=dataname)
+
+df_cost_h2 = DataFrames.rename!(
+      dfDict["cost_h2"][!,[:Technologies, :Scenario, ScYr_Sym]],
+      Dict(ScYr_Sym => :ScenCostPower)
+      )
+# Filter by the current Scenario:
+df_cost_h2 = @linq df_cost_h2 |> where(:Scenario .== Scen_ISP_Map[ScenarioName])
+# Read into model parameters:
+params_cost_h2 = Dieter.map_idcol(df_cost_h2, [:Technologies], skip_cols=Symbol[:Scenario])
+for (k,v) in params_cost_h2 Dieter.update_dict!(dtr.parameters, k, v) end
+
+# The above should create parameters in dtr.parameters[:ScenCostPower] for H2 tech.
 # %% Synchronous condensers
 # Synchronous condenser with flywheel - cost in $ per inertial units of `MWs`
 
@@ -316,7 +348,7 @@ SynConOvernightCost =  round(1.0E6*185.2/4400, digits=2) # Units:  $/MWs
 # ElectraNet, "Main grid system strength project: Contingent project application", p. 21, 28 June 2019, p. 19.
 # All dollar amounts in this document are in real, $2017–18 in line with the ElectraNet's revenue determination unless otherwise stated.
 
-LifetimeSynCon = 40   # Source: GHD; Economic life for ElectraNet synchronous condensers - ElectraNet 28 June 2019
+LifetimeSynCon = 30 # InvestRecovery # InvestLifetime 40 # Source: GHD; Economic life for ElectraNet synchronous condensers - ElectraNet 28 June 2019
 i = dtr.settings[:interest]
 SynConCapCost = SynConOvernightCost*Dieter.annuity(i, LifetimeSynCon)
 dtr.parameters[:SynConCapCost] = Dict("SynConNew" => SynConCapCost)
@@ -443,15 +475,26 @@ dfDict["tech"] = @byrow! dfDict["tech"] begin
        # end
  end
 
+BattEnergyType = dtr.settings[:scen_types][:BattEnergyType]
+HydPumpEnergyType =  dtr.settings[:scen_types][:HydPumpEnergyType]
+
 BattEnergyCost = dtr.parameters[:ScenCostEnergy][BattEnergyType]
 HydPumpEnergyCost = dtr.parameters[:ScenCostEnergy][HydPumpEnergyType]
 dfDict["storage"] = @byrow! dfDict["storage"] begin
        if :Status == "NewEntrant" && rel_node_storages(:Region,:Storages) == true
-            if occursin(r"Battery",:TechType)
-                 :OvernightCostEnergy = BattEnergyCost
-           elseif occursin(r"Pump Storage",:TechType)
-                 :OvernightCostEnergy = HydPumpEnergyCost
-           end
+             :OvernightCostPower = ScenCostPower[:Storages]
+                  if occursin(r"Battery",:TechType)
+                       :OvernightCostEnergy = BattEnergyCost
+                       :MaxEnergyToPowerRatio = 12.0
+                  elseif occursin(r"Pump Storage",:TechType)
+                       :OvernightCostEnergy = HydPumpEnergyCost
+                 end
+       end
+ end
+
+ dfDict["storage"] = @byrow! dfDict["storage"] begin
+       if :Storages == "HydPump_New"
+              :MaxEnergyToPowerRatio = 200.0
        end
  end
 
@@ -479,6 +522,8 @@ dfDict["storage"] = @byrow! dfDict["storage"] begin
       end
 end
 @linq dfDict["storage"] |> where(:Storages .== "HydPump_Exi") |> select(:Region, :ExistingCapacity, :MaxEnergyToPowerRatio)
+@linq dfDict["storage"] |> where(:Storages .== "HydPump_New") |> select(:Region, :ExistingCapacity, :MaxEnergyToPowerRatio)
+@linq dfDict["storage"] |> where(occursin.(r"Battery",:TechType)) |> select(:Region, :ExistingCapacity, :MaxEnergyToPowerRatio)
 
 # # Battery of the Nation...
 
@@ -489,8 +534,13 @@ dfDict["tech"] = @byrow! dfDict["tech"] begin
       # @newcol IncCost::Array{Float64}
       if :Status == "NewEntrant" && rel_node_tech(:Region,:Technologies) == true
             :OvernightCostPower = :OvernightCostPower + ConnectCost[(:Region,:Technologies)]
-      # else
-            # :IncCost = :OvernightCostPower
+      end
+end
+
+dfDict["storage"] = @byrow! dfDict["storage"]  begin
+      # @newcol IncCost::Array{Float64}
+      if :Status == "NewEntrant" && rel_node_storages(:Region,:Storages) == true
+            :OvernightCostPower = :OvernightCostPower + ConnectCost[(:Region,:Storages)]
       end
 end
 
@@ -654,6 +704,7 @@ end
 # FYE2018 reference demand peaks:
 Peaks_BaseYear = Dict("QLD1" => 9383, "NSW1" => 14226,"VIC1" => 9886, "SA1" => 3181, "TAS1" => 1389)
 
+# RequireRatio is used in the inertia constraint to adapt variables demand profiles to the reference year for inertia levels.
 RequireRatio = Dict([dr => Peaks[dr]/Peaks_BaseYear[dr] for dr in DemandRegions])
 dtr.parameters[:RequireRatio] = RequireRatio
 # SynCon_New_Cost = 37727.0  # $/MWs
@@ -765,6 +816,7 @@ calc_base_parameters!(dtr)
 
 parse_extensions!(dtr,dataname=sql_db_path)
 
+
 # # Hydrogen - code for testing sub-functions
 # fileDict["h2_technologies"] = joinpath(datapath,"h2","h2_technologies.sql")
 # dfDict["h2_technologies"] = parse_file(fileDict["h2_technologies"]; dataname=dataname)
@@ -811,8 +863,13 @@ end
 
 
 NoExpansionREZones = keys(filter(x -> ismissing(x[2]), dtr.parameters[:TransExpansionCost]))
-for rez in NoExpansionREZones
-      JuMP.fix(N_RES_EXP[rez], 0; force=true)
+if isempty(NoExpansionREZones)
+      @info "No REZ expansions fixed to 0."
+else
+      for rez in NoExpansionREZones
+            @info "Fixing REZ expansion to 0 for $(rez)."
+            JuMP.fix(N_RES_EXP[rez], 0; force=true)
+      end
 end
 
 MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio]
@@ -972,7 +1029,9 @@ using Serialization
 
 # solved_dtr = copy(dtr)
 # solved_dtr.model = []
-Serialization.serialize(joinpath(resultsdir,results_filename), res)
+Serialization.serialize(joinpath(resultsdir,results_filename), dtr.results)
+
+Serialization.serialize(joinpath(resultsdir,scenario_timestamp*".settings"),dtr.settings)
 
 # timestep = 2
 # timestep = dtr.settings[:timestep]

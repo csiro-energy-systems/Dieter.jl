@@ -1,4 +1,4 @@
-SELECT 
+SELECT
 Technologies.TechTypeID AS Storages,
 Technologies.RegionID AS Region,
 Technologies.CapacityFactor,
@@ -10,8 +10,8 @@ Technologies.OvernightCostEnergy,
 Technologies.CurtailmentCost,
 --Technologies.LoadIncreaseCost,
 --Technologies.LoadDecreaseCost,
-Technologies.InvestLifetime AS Lifetime,
---Technologies.InvestRecovery,
+-- Technologies.InvestLifetime AS Lifetime,
+Technologies.InvestRecovery AS Lifetime,
 Technologies.MaxCapacity,
 Technologies.MaxEnergy,
 Technologies.StartLevel,
@@ -22,6 +22,6 @@ Technology_Types.IsDispatchable AS Dispatchable,
 Technology_Types.FuelSource,
 Technology_Types.Efficiency
 --Technology_Types.CarbonContent
-FROM 
+FROM
 Technologies JOIN Technology_Types USING (TechTypeID)
 WHERE IsStorage=1

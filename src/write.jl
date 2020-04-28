@@ -12,14 +12,16 @@ elseif Base.Sys.iswindows()
       resultsdir = joinpath("F:\\STABLE\\","results_STABLE")
 end
 
-xlsx_output_file = joinpath(resultsdir,"STABLE_summary-$(run_timestamp).xlsx")
+scenario_timestamp = scen_settings[:scen]
 
-CSV.write(joinpath(resultsdir,"$(run_timestamp)-Demand.csv"),dfDict["load"])
-CSV.write(joinpath(resultsdir,"$(run_timestamp)-Gen-TxZ.csv"),resSplit[:TxZ_GEN])
-CSV.write(joinpath(resultsdir,"$(run_timestamp)-Gen-REZ.csv"),resSplit[:REZ_GEN_CU])
+xlsx_output_file = joinpath(resultsdir,"STABLE_summary-$(scenario_timestamp).xlsx")
 
-CSV.write(joinpath(resultsdir,"$(run_timestamp)-Storage.csv"),resSplit[:STORAGE])
-CSV.write(joinpath(resultsdir,"$(run_timestamp)-Flow.csv"),resSplit[:FLOW])
+CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Demand.csv"),dfDict["load"])
+CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Gen-TxZ.csv"),resSplit[:TxZ_GEN])
+CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Gen-REZ.csv"),resSplit[:REZ_GEN_CU])
+
+CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Storage.csv"),resSplit[:STORAGE])
+CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Flow.csv"),resSplit[:FLOW])
 
 
 # Write capacity data and create place-holders for larger datasets:
@@ -48,7 +50,7 @@ XLSX.openxlsx(xlsx_output_file, mode="w") do xf
 end
 
 
-# CSV.write(joinpath(resultsdir,"$(run_timestamp)-Dispatch.csv"),resSplit[:DISPATCH])
+# CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Dispatch.csv"),resSplit[:DISPATCH])
 # XLSX.openxlsx(xlsx_output_file, mode="rw") do xf
 #     XLSX.writetable!(xf["DISPATCH"], prepare_df_xlsx(resSplit[:DISPATCH])...)
 # end

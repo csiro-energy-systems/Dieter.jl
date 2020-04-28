@@ -119,6 +119,37 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
     if !(dtr.settings[:h2] |> ismissing)
         # e.g. fileDict["h2"] = joinpath(datapath,"h2","h2_technologies.csv")
         dfDict["h2_technologies"] = parse_file(fileDict["h2_technologies"]; dataname=dataname)
+
+        # Overwrite values from "h2_technologies" table by Scenario:
+        ScenCostPower = dtr.parameters[:ScenCostPower]
+
+        scen_types = dtr.settings[:scen_types]
+
+        H2ElectrolyserType = scen_types[:H2ElectrolyserType]
+        H2RecipEngType = scen_types[:H2RecipEngType]
+
+        if H2ElectrolyserType in keys(ScenCostPower)
+            dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
+                    if :H2Technologies == "H2Electrolyser"
+                        :H2OvernightCost = ScenCostPower[H2ElectrolyserType]
+                    end
+                end
+            @info "H2 Electrolyser cost was overwritten with scenario value."
+        else
+            @warn "H2 Electrolyser cost was _NOT_ overwritten by scenario value"
+        end
+
+        if H2RecipEngType in keys(ScenCostPower)
+            dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
+                    if :H2Technologies == "RecipEngH2"
+                        :H2OvernightCost = ScenCostPower[H2RecipEngType]
+                    end
+                end
+            @info "H2 Reciprocating Engine cost was overwritten with scenario value."
+        else
+            @warn "H2 Reciprocating Engine cost was _NOT_ overwritten by scenario value"
+        end
+
         parse_h2_technologies!(dtr, dfDict["h2_technologies"])
 
         calc_inv_gas!(dtr)

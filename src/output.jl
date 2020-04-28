@@ -2,6 +2,11 @@
 # using Dieter
 # import Serialization
 
+# timestep = 2
+timestep = dtr.settings[:timestep]
+periods = round(Int,Dieter.hoursInYear*(2/timestep))
+time_ratio = Dieter.hoursInYear//periods
+
 # run_timestamp = scen_settings[:scen]
 # run_timestamp = "2020-04-04-H18-Scen1_BAU-ScYr2030-Testing"
 #

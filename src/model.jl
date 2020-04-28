@@ -13,6 +13,10 @@ function build_model!(dtr::DieterModel,
     solver; #::MathOptInterface.AbstractOptimizer;
     timestep::Int=2)
 
+    dtr.model = Model(solver)
+
+    m = dtr.model
+
     dtr.settings[:timestep] = timestep
 
     periods = round(Int,hoursInYear*(2/timestep))
@@ -63,8 +67,8 @@ function build_model!(dtr::DieterModel,
     for (k,v) in min_res_dict
         if !(0 <= v <= 100)
             error("The setting in `min_res_dict` of value $v for Demand Region $k is not in the interval [0,100].")
-        elseif (0 <= v <= 1)
-            @warn "Note: The setting in `min_res_dict` of value $v for Demand Region $k is a percentage, not necessarily a fraction in [0,1]."
+        elseif (0 < v <= 1)
+            @warn "Note: The setting in `min_res_dict` of value $v for Demand Region $k is a percentage, not necessarily a fraction in the interval (0,1]."
         end
     end
 
@@ -168,8 +172,6 @@ function build_model!(dtr::DieterModel,
     @info "Start of model building:"
 
     prog = Progress(7, dt=0.01, desc="Building Model...         \n", barlen=30)
-
-    m = Model(solver)
 
     shorter =  Dict("Total_cost_objective" => "Z",
                     "Generation_level" => "G",
@@ -720,9 +722,6 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     next!(prog)
-
-
-    dtr.model = m
 
     return dtr
 end
