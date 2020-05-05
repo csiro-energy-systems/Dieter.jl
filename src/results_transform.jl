@@ -7,6 +7,9 @@ timestep = dtr.settings[:timestep]
 periods = round(Int,Dieter.hoursInYear*(2/timestep))
 time_ratio = Dieter.hoursInYear//periods
 
+Hours = Base.OneTo(periods)
+dtr.sets[:Hours] = Hours
+
 # run_timestamp = scen_settings[:scen]
 # run_timestamp = "2020-04-04-H18-Scen1_BAU-ScYr2030-Testing"
 #
@@ -168,7 +171,8 @@ rel_node_tech_txz = create_relation(df_N_TECH_txz,:Nodes,:Technologies,:N_TECH)
 resSplit[:G] = @where(resSplit[:G], rel_node_tech_built.(:Nodes,:Technologies) .== true)
 
 resSplit[:TxZ_GEN] = @where(resSplit[:G], rel_node_tech_txz.(:Nodes,:Technologies) .== true)
-# check: unique(resSplit[:GEN_TxZ][!,:Technologies])
+# check: unique(resSplit[:TxZ_GEN][!,:Technologies])
+# check: unique(resSplit[:TxZ_GEN][!,[:Nodes,:Technologies]])
 
 # # Dispatch information
 # Filter for absent technologies
@@ -179,7 +183,9 @@ resSplit[:TxZ_GEN] = @where(resSplit[:G], rel_node_tech_txz.(:Nodes,:Technologie
 # tmp1 = join(resSplit[:G_UP],resSplit[:G_DO], on =[:Nodes, :Technologies,:Hours])
 # resSplit[:DISPATCH] = join(resSplit[:G], tmp1, on =[:Nodes, :Technologies,:Hours])
 
-# %% Generation of renewables:
+# %% Generation by renewables:
+
+# Filter out absent technologies:
 resSplit[:REZ_GEN] = @where(resSplit[:G], rel_node_tech_rez.(:Nodes,:Technologies) .== true)
 resSplit[:CU_GEN] = @where(resSplit[:CU], rel_node_tech_rez.(:Nodes,:Technologies) .== true)
 
@@ -200,7 +206,7 @@ resSplit[:REZ_GEN_CU] = @byrow! resSplit[:REZ_GEN_CU] begin
         end
 
 # %% Storage:
-# Filter for absent technologies
+# Filter out absent technologies:
 # Note: STO_L is energy (MWh), STO_IN / STO_OUT is energy in time (power)
 resSplit[:STO_L] = @where(resSplit[:STO_L], rel_node_sto_built.(:Nodes,:Technologies) .== true)
 resSplit[:STO_IN] = @where(resSplit[:STO_IN], rel_node_sto_built.(:Nodes,:Technologies) .== true)
@@ -209,22 +215,51 @@ resSplit[:STO_OUT] = @where(resSplit[:STO_OUT], rel_node_sto_built.(:Nodes,:Tech
 tmp2 = join(resSplit[:STO_IN],resSplit[:STO_OUT], on =[:Nodes, :Technologies,:Hours])
 resSplit[:STORAGE] = join(resSplit[:STO_L], tmp2, on =[:Nodes, :Technologies,:Hours])
 
+# %% Hydrogen:
+# if !ismissing(dtr.settings[:h2])
+# H2 Power-to-gas:
+df_p2g = @byrow! resSplit[:N_P2G] begin
+            @newcol TechType::Array{String}
+            :TechType = "P2G"
+        end
+df_p2g = rename(df_p2g, Dict(:N_P2G => :Capacity))
+
+# H2 Gas-to-power
+df_g2p = @byrow! resSplit[:N_G2P] begin
+            @newcol TechType::Array{String}
+            :TechType = "G2P"
+        end
+df_g2p = rename(df_g2p, Dict(:N_G2P => :Capacity))
+
+# H2 gas storage
+df_gs = @byrow! resSplit[:N_GS] begin
+            @newcol TechType::Array{String}
+            :TechType = "GS"
+        end
+df_gs = rename(df_gs, Dict(:N_GS => :Capacity))
+
+df_h2 = vcat(df_p2g, df_g2p, df_gs)
+resSplit[:CAPACITY_H2] = select(df_h2, [:TechType, :Nodes, :Technologies, :Capacity])
+
+# end
+
 # %% Augment with DemandRegion (State) information:
 
-DR_augmentIndex = Dict(
+DemandRegion_augmentIndex = Dict(
   :TxZ_GEN => :Nodes,
   :REZ_GEN => :Nodes,
   :REZ_GEN_CU => :Nodes,
   :STORAGE => :Nodes,
   :CAPACITY_GEN => :Nodes,
   :CAPACITY_STO => :Nodes,
-  :CAPACITY_REZ_EXP => :REZones
+  :CAPACITY_REZ_EXP => :REZones,
+  :CAPACITY_H2 => :Nodes
   # :FLOW => :From
 )
 
 # Potential - annotate REZones with corresponding Transmission Zone
-TxZ_augmentIndex = Dict(
-  :REZ_GEN => :Nodes,
+TxZone_augmentIndex = Dict(
+  :REZ_GEN_CU => :Nodes,
   :CAPACITY_REZ_EXP => :REZones
   # :FLOW => :From
 )
@@ -234,44 +269,46 @@ TxZ_augmentIndex = Dict(
 #  :FLOW => :From, :FLOW => [:From,:To]
 #  :G_REZ => [:REZones],  :G_TxZ => [:TxZones],  :N_RES_EXP => [:REZones],
 
-node2DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
+df_nodes_rez = filter(row -> row[:NodeTypes] == "REZone", df_nodes)
+rez2TxZone = Dict(zip(df_nodes_rez[!,:Nodes],df_nodes_rez[!,:NodePromote]))
 
-function DR_map!(df::DataFrame,colname::Symbol)
-    demreg = map(x -> node2DemReg[x], df[!,colname])
-    df[!,:DemandRegion] = demreg
+function REZ_TxZone_map!(df::DataFrame,input_colname::Symbol, output_colname::Symbol)
+    df[!,output_colname] = map(x -> rez2TxZone[x], df[!,input_colname])
     return nothing
 end
 
-for (ks, vs) in DR_augmentIndex
+for (ks, vs) in TxZone_augmentIndex
     # Add the DemandRegion column
-    DR_map!(resSplit[ks],vs)
-    # Make the new column the first
+    REZ_TxZone_map!(resSplit[ks],vs,:TxZone)
+    # Make the newly created (last) column the first
+    L = ncol(resSplit[ks])
+    resSplit[ks] = select(resSplit[ks],[L,1:(L-1)...])
+end
+
+node2DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
+
+function DemandRegion_map!(df::DataFrame,input_colname::Symbol, output_colname::Symbol)
+    df[!,output_colname] = map(x -> node2DemReg[x], df[!,input_colname])
+    return nothing
+end
+
+for (ks, vs) in DemandRegion_augmentIndex
+    # Add the DemandRegion column
+    DemandRegion_map!(resSplit[ks],vs,:DemandRegion)
+    # Make the newly created (last) column the first
     L = ncol(resSplit[ks])
     resSplit[ks] = select(resSplit[ks],[L,1:(L-1)...])
 end
 
 # Augment with a column showing the Demand Regions of the flow's nodes:
 df_flow = resSplit[:FLOW]
-df_flow[!,:FromRegion] = map(x -> node2DemReg[x], df_flow[!,:From])
-df_flow[!,:ToRegion] = map(x -> node2DemReg[x], df_flow[!,:To])
-
+DemandRegion_map!(df_flow, :From, :FromRegion)
+DemandRegion_map!(df_flow, :To, :ToRegion)
+# # Equivalent to:
+# df_flow[!,:FromRegion] = map(x -> node2DemReg[x], df_flow[!,:From])
+# df_flow[!,:ToRegion] = map(x -> node2DemReg[x], df_flow[!,:To])
 L = ncol(df_flow)
 resSplit[:FLOW] = select(df_flow,[L-1,L,1:(L-2)...])
 
-# Inter-state flow:
-df_interflow = @where(df_flow, :FromRegion .!== :ToRegion)
-DemandRegions = dtr.sets[:DemandRegions]
-df_regflow = Dict{String,DataFrame}([r => DataFrame() for r in DemandRegions])
-
-for DR in DemandRegions
-    df_regflow[DR] = @linq df_interflow |>
-              where(:FromRegion .== DR) |>
-              by(:Hours, Level = sum(:FLOW))
-end
-
-# XLSX.openxlsx("test.xlsx", mode="w") do xf
-#     for DR in DemandRegions
-#         XLSX.addsheet!(xf,"INTERFLOW_"*DR)
-#            XLSX.writetable!(xf["INTERFLOW_"*DR], prepare_df_xlsx(df_regflow[DR])...)
-#     end
-# end
+# Construct inter-state / inter-region flow DataFrame:
+resSplit[:INTERFLOW] = @where(resSplit[:FLOW], :FromRegion .!== :ToRegion)

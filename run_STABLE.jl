@@ -16,7 +16,8 @@ import DBInterface
 import SQLite
 import CSV
 import TimeSeries
-using Dates
+import Dates
+import Serialization
 # using Tables
 # import XLSX
 
@@ -97,7 +98,7 @@ scen_settings[:scen] = run_timestamp*"-$(ScenarioName)-ScYr$(ScenarioYear)-$(Not
 
 scenario_timestamp = scen_settings[:scen]
 
-scen_settings[:interest] = 0.06
+scen_settings[:interest] = 0.07
 scen_settings[:cost_scaling] = 1 # 1.0e-6
 # Modify the :min_res setting over [0,100] and rerun to see comparison.
 scen_settings[:min_res] = 10
@@ -1025,11 +1026,10 @@ res = dtr.results
 # save_results(dtr, resultsdir)
 #
 
-using Serialization
-
 # solved_dtr = copy(dtr)
 # solved_dtr.model = []
 Serialization.serialize(joinpath(resultsdir,results_filename), dtr.results)
+# res = Serialization.deserialize(joinpath(resultsdir,results_filename))
 
 Serialization.serialize(joinpath(resultsdir,scenario_timestamp*".settings"),dtr.settings)
 
@@ -1040,8 +1040,12 @@ Serialization.serialize(joinpath(resultsdir,scenario_timestamp*".settings"),dtr.
 
 # %% Get the results:
 
-include("src/output.jl")
+include("src/results_transform.jl")
 
+include("src/results_summary.jl")
+# include("src/results_plot.jl")
+
+# resultsdir = outputdir
 include("src/write.jl")
 
 # %% Merge results with other runs

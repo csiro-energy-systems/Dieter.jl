@@ -5,13 +5,6 @@ import XLSX
 
 prepare_df_xlsx(df) = ( collect(DataFrames.eachcol(df)), DataFrames.names(df) )
 
-
-if Base.Sys.isapple()
-      resultsdir = joinpath(ENV["HOME"],"Documents/Projects/ESM/","results_STABLE")
-elseif Base.Sys.iswindows()
-      resultsdir = joinpath("F:\\STABLE\\","results_STABLE")
-end
-
 scenario_timestamp = scen_settings[:scen]
 
 xlsx_output_file = joinpath(resultsdir,"STABLE_summary-$(scenario_timestamp).xlsx")
@@ -26,8 +19,7 @@ CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Flow.csv"),resSplit[:FLOW])
 
 # Write capacity data and create place-holders for larger datasets:
 XLSX.openxlsx(xlsx_output_file, mode="w") do xf
-    XLSX.rename!(xf[1],"OPDEMAND")
-    XLSX.addsheet!(xf,"CAPACITY_GEN")
+    XLSX.rename!(xf[1],"CAPACITY_GEN")
         XLSX.writetable!(xf["CAPACITY_GEN"], prepare_df_xlsx(resSplit[:CAPACITY_GEN])...)
     XLSX.addsheet!(xf,"CAPACITY_STO")
         XLSX.writetable!(xf["CAPACITY_STO"], prepare_df_xlsx(resSplit[:CAPACITY_STO])...)
@@ -35,6 +27,28 @@ XLSX.openxlsx(xlsx_output_file, mode="w") do xf
         XLSX.writetable!(xf["CAPACITY_REZ_EXP"], prepare_df_xlsx(resSplit[:CAPACITY_REZ_EXP])...)
     XLSX.addsheet!(xf,"CAPACITY_SYNC")
         XLSX.writetable!(xf["CAPACITY_SYNC"], prepare_df_xlsx(resSplit[:N_SYNC])...)
+    XLSX.addsheet!(xf,"CAPACITY_H2")
+        XLSX.writetable!(xf["CAPACITY_H2"], prepare_df_xlsx(resSplit[:CAPACITY_H2])...)
+end
+
+# Use inter-region flow DataFrame and filter for each region to obtain _net_ flow _from_ region:
+interflow_dict = Dict{String, DataFrame}()
+for DR in dtr.sets[:DemandRegions]
+    interflow_dict[DR] = @linq resSplit[:INTERFLOW] |>
+              where(:FromRegion .== DR) |>
+              by(:Hours, Level = sum(:FLOW))
+end
+
+XLSX.openxlsx(xlsx_output_file, mode="rw") do xf
+    for DR in dtr.sets[:DemandRegions]
+        XLSX.addsheet!(xf,"INTERFLOW_"*DR)
+           XLSX.writetable!(xf["INTERFLOW_"*DR], prepare_df_xlsx(interflow_dict[DR])...)
+    end
+end
+
+#=
+XLSX.openxlsx(xlsx_output_file, mode="rw") do xf
+    XLSX.addsheet!(xf,"OPDEMAND")
     XLSX.addsheet!(xf,"GEN_TxZ")
         # XLSX.writetable!(xf["GEN_TxZ"], prepare_df_xlsx(resSplit[:TxZ_GEN])...)
     XLSX.addsheet!(xf,"GEN_REZ")
@@ -43,12 +57,8 @@ XLSX.openxlsx(xlsx_output_file, mode="w") do xf
         # XLSX.writetable!(xf["STORAGE"], prepare_df_xlsx(resSplit[:STORAGE])...)
     XLSX.addsheet!(xf,"FLOW")
         # XLSX.writetable!(xf["FLOW"], prepare_df_xlsx(resSplit[:FLOW])...)
-    for DR in DemandRegions
-        XLSX.addsheet!(xf,"INTERFLOW_"*DR)
-           XLSX.writetable!(xf["INTERFLOW_"*DR], prepare_df_xlsx(df_regflow[DR])...)
-    end
 end
-
+=#
 
 # CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Dispatch.csv"),resSplit[:DISPATCH])
 # XLSX.openxlsx(xlsx_output_file, mode="rw") do xf
