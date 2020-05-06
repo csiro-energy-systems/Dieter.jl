@@ -216,32 +216,31 @@ tmp2 = join(resSplit[:STO_IN],resSplit[:STO_OUT], on =[:Nodes, :Technologies,:Ho
 resSplit[:STORAGE] = join(resSplit[:STO_L], tmp2, on =[:Nodes, :Technologies,:Hours])
 
 # %% Hydrogen:
-# if !ismissing(dtr.settings[:h2])
-# H2 Power-to-gas:
-df_p2g = @byrow! resSplit[:N_P2G] begin
-            @newcol TechType::Array{String}
-            :TechType = "P2G"
-        end
-df_p2g = rename(df_p2g, Dict(:N_P2G => :Capacity))
+if !ismissing(dtr.settings[:h2])
+    # H2 Power-to-gas:
+    df_p2g = @byrow! resSplit[:N_P2G] begin
+                @newcol TechType::Array{String}
+                :TechType = "P2G"
+            end
+    df_p2g = rename(df_p2g, Dict(:N_P2G => :Capacity))
 
-# H2 Gas-to-power
-df_g2p = @byrow! resSplit[:N_G2P] begin
-            @newcol TechType::Array{String}
-            :TechType = "G2P"
-        end
-df_g2p = rename(df_g2p, Dict(:N_G2P => :Capacity))
+    # H2 Gas-to-power
+    df_g2p = @byrow! resSplit[:N_G2P] begin
+                @newcol TechType::Array{String}
+                :TechType = "G2P"
+            end
+    df_g2p = rename(df_g2p, Dict(:N_G2P => :Capacity))
 
-# H2 gas storage
-df_gs = @byrow! resSplit[:N_GS] begin
-            @newcol TechType::Array{String}
-            :TechType = "GS"
-        end
-df_gs = rename(df_gs, Dict(:N_GS => :Capacity))
+    # H2 gas storage
+    df_gs = @byrow! resSplit[:N_GS] begin
+                @newcol TechType::Array{String}
+                :TechType = "GS"
+            end
+    df_gs = rename(df_gs, Dict(:N_GS => :Capacity))
 
-df_h2 = vcat(df_p2g, df_g2p, df_gs)
-resSplit[:CAPACITY_H2] = select(df_h2, [:TechType, :Nodes, :Technologies, :Capacity])
-
-# end
+    df_h2 = vcat(df_p2g, df_g2p, df_gs)
+    resSplit[:CAPACITY_H2] = select(df_h2, [:TechType, :Nodes, :Technologies, :Capacity])
+end
 
 # %% Augment with DemandRegion (State) information:
 
@@ -293,11 +292,13 @@ function DemandRegion_map!(df::DataFrame,input_colname::Symbol, output_colname::
 end
 
 for (ks, vs) in DemandRegion_augmentIndex
-    # Add the DemandRegion column
-    DemandRegion_map!(resSplit[ks],vs,:DemandRegion)
-    # Make the newly created (last) column the first
-    L = ncol(resSplit[ks])
-    resSplit[ks] = select(resSplit[ks],[L,1:(L-1)...])
+    if ks in keys(resSplit)
+        # Add the DemandRegion column
+        DemandRegion_map!(resSplit[ks],vs,:DemandRegion)
+        # Make the newly created (last) column the first
+        L = ncol(resSplit[ks])
+        resSplit[ks] = select(resSplit[ks],[L,1:(L-1)...])
+    end
 end
 
 # Augment with a column showing the Demand Regions of the flow's nodes:

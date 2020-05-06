@@ -30,8 +30,10 @@ XLSX.openxlsx(xlsx_output_file, mode="w") do xf
         XLSX.writetable!(xf["CAPACITY_REZ_EXP"], prepare_df_xlsx(resSplit[:CAPACITY_REZ_EXP])...)
     XLSX.addsheet!(xf,"CAPACITY_SYNC")
         XLSX.writetable!(xf["CAPACITY_SYNC"], prepare_df_xlsx(resSplit[:N_SYNC])...)
-    XLSX.addsheet!(xf,"CAPACITY_H2")
-        XLSX.writetable!(xf["CAPACITY_H2"], prepare_df_xlsx(resSplit[:CAPACITY_H2])...)
+    if !ismissing(dtr.settings[:h2])
+        XLSX.addsheet!(xf,"CAPACITY_H2")
+            XLSX.writetable!(xf["CAPACITY_H2"], prepare_df_xlsx(resSplit[:CAPACITY_H2])...)
+    end
 end
 
 # Use inter-region flow DataFrame and filter for each region to obtain _net_ flow _from_ region:
