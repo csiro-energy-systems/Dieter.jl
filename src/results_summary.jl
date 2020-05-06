@@ -1,8 +1,18 @@
 # This file: Produce summaries of various aspects of the results:
 
 import XLSX
+using OrderedCollections
+import OrderedCollections: OrderedDict
+
+# cf. write.jl
+# We annotate with the label "Grouped" after summarising the results into technology groupings:
+xlsx_output_file = joinpath(resultsdir,"STABLE_summary-Grouped-$(scenario_timestamp).xlsx")
+# xlsx_output_file = joinpath(resultsdir,"STABLE_summary-Grouped-Output-Template-Testing.xlsx")
 
 # Utility functions:
+
+prepare_df_xlsx(df) = ( collect(DataFrames.eachcol(df)), DataFrames.names(df) )
+
 
 # "This has the obvious caveat that the input Dict needs to be one-to-one."
 # function invert_Dict(d::Dict)
@@ -14,32 +24,34 @@ import XLSX
 
 # We need to summarise all technology types into certain smaller categories:
 
-summary_tech_map = Dict{Symbol,String}(
-    :Biomass      => "Biomass",
+summary_tech_map = OrderedDict{Symbol,String}(
     :BlackCoal    => "Black coal",
     :BrownCoal    => "Brown coal",
-    :SolarPV      => "Solar PV",
-    :SolarThermal => "Solar thermal",
     :GasOther     => "Gas recip.",
     :CCGT         => "CCGT",
     :OCGT         => "OCGT",
     :Distillate   => "Diesel",
+    :Biomass      => "Biomass",
     :Hydro        => "Hydro",
-    :Wind         => "Wind"
+    :Wind         => "Wind",
+    :SolarPV      => "Solar PV"
+    # :SolarThermal => "Solar thermal",
 )
 
-summary_storage_map = Dict{Symbol,String}(
-    :Battery      => "Large-scale battery",
-    :BatteryVPP   => "VPP battery",
+summary_storage_map = OrderedDict{Symbol,String}(
     :PumpedHydro  => "Pumped hydro",
+    :Battery      => "Large-scale battery",
+    :BatteryVPP   => "VPP battery"
 )
-#     "Imports" => :Interflow,
-#     "Demand" => :Load
+#     :Interflow => "Imports",
+#     :Load => "Demand"
 # )
 
-summary_map = Dict(union(summary_tech_map, summary_storage_map))
+summary_map = (union(summary_tech_map, summary_storage_map))
+summary_tech = [k for (k,v) in summary_map]
 
-summary_tech = keys(summary_map)
+summary_dict = Dict(summary_map)
+
 # summary_reverse_map = invert_Dict(summary_tech_map)
 
 # The map_output table has the `values` of summary_map as column headings.
@@ -49,7 +61,7 @@ dfDict["map_output"] = parse_file(fileDict["map_output"]; dataname=dataname)
 
 
 techGroups = Dict()
-for k in keys(summary_map)
+for k in summary_tech
     df = dfDict["map_output"]
     techGroups[k] = [df[row,:TechID] for row in 1:size(df,1) if df[row,k] == 1]
     # Alternative ?:
@@ -70,7 +82,7 @@ unknown_tech = setdiff(techColl, dtr.sets[:Technologies], dtr.sets[:Storages])
 @assert isempty(unknown_tech)
 
 missed_tech = setdiff(union(dtr.sets[:Technologies], dtr.sets[:Storages]),techColl)
-@assert isempty(missed_tech)
+# @assert isempty(missed_tech)
 
 # Find Capacity for each tech. group and region
 
@@ -93,12 +105,16 @@ end
 # e.g. map_group(techGroups,"Hydro_New")
 
 function create_output_frame(tech_group_dict, df_input,
-        values_col::Symbol, column_dimension::Symbol; transpose_flag=false)
+        values_col::Symbol, column_dimension::Symbol; transpose_flag=false, map_names::Bool=false, map_dict=Dict())
     df = @byrow! df_input begin
                     @newcol TechGroup::Array{String}
                     group = map_group(tech_group_dict,:Technologies)
                     if length(group) == 1
-                        :TechGroup = String(group[1])
+                        if map_names == true
+                            :TechGroup = map_dict[group[1]]
+                        else
+                            :TechGroup = String(group[1])
+                        end
                     end
                 end
 
@@ -117,17 +133,20 @@ function create_output_frame(tech_group_dict, df_input,
     return df_pivot
 end
 
-df_cap_tech_pivot = create_output_frame(techGroups, resSplit[:CAPACITY_GEN], :N_TECH, :DemandRegion)
-df_cap_sto_power = create_output_frame(techGroups, resSplit[:CAPACITY_STO], :N_STO_P, :DemandRegion)
-df_cap_sto_energy = create_output_frame(techGroups, resSplit[:CAPACITY_STO], :N_STO_E, :DemandRegion)
+df_cap_tech_pivot = create_output_frame(techGroups, resSplit[:CAPACITY_GEN],
+                            :N_TECH, :DemandRegion, map_names=true, map_dict=summary_dict)
+df_cap_sto_power = create_output_frame(techGroups, resSplit[:CAPACITY_STO],
+                            :N_STO_P, :DemandRegion, map_names=true, map_dict=summary_dict)
+df_cap_sto_energy = create_output_frame(techGroups, resSplit[:CAPACITY_STO],
+                            :N_STO_E, :DemandRegion, map_names=true, map_dict=summary_dict)
 
 df_cap_rez = @where(resSplit[:CAPACITY_GEN], rel_node_tech_rez.(:Nodes,:Technologies) .== true)
-df_cap_rez_pivot = create_output_frame(techGroups, df_cap_rez, :N_TECH, :Nodes, transpose_flag=true)
+df_cap_rez_pivot = create_output_frame(techGroups, df_cap_rez,
+                            :N_TECH, :Nodes, transpose_flag=true, map_names=true, map_dict=summary_dict)
 
-xlsx_output_file = joinpath(resultsdir,"STABLE_summary-2020-05-04-H15-Scen1_BAU-ScYr2030-Testing.xlsx")
-
-XLSX.openxlsx(xlsx_output_file, mode="rw") do xf
-    XLSX.addsheet!(xf,"DG_Cap_Tech")
+XLSX.openxlsx(xlsx_output_file, mode="w") do xf
+    XLSX.rename!(xf[1],"DG_Cap_Tech")
+    # XLSX.addsheet!(xf,"DG_Cap_Tech")
         XLSX.writetable!(xf["DG_Cap_Tech"], prepare_df_xlsx(df_cap_tech_pivot)...)
     XLSX.addsheet!(xf,"DS_Cap_Power")
         XLSX.writetable!(xf["DS_Cap_Power"], prepare_df_xlsx(df_cap_sto_power)...)
@@ -135,6 +154,7 @@ XLSX.openxlsx(xlsx_output_file, mode="rw") do xf
         XLSX.writetable!(xf["DS_Cap_Energy"], prepare_df_xlsx(df_cap_sto_energy)...)
     XLSX.addsheet!(xf,"DG_Cap_REZ")
         XLSX.writetable!(xf["DG_Cap_REZ"], prepare_df_xlsx(df_cap_rez_pivot)...)
+    XLSX.addsheet!(xf,"DG_Gen")
 end
 
 # %%  Annual Generation for each tech. group and region
@@ -161,22 +181,26 @@ df_sto_in_GWh = scale_dataframe(df_sto_in_pivot, :TechGroup, 1e-3)
 
 append!(df_gen_GWh,df_sto_in_GWh)
 
+XLSX.openxlsx(xlsx_output_file, mode="rw") do xf
+        XLSX.writetable!(xf["DG_Gen"], prepare_df_xlsx(df_gen_GWh)...)
+end
+
 # %%  Find min. and max. renewable days in each region,
 #  with corresponding traces for all tech. groups, imports and demand.
 
 # Find a one-day period that satisfies the given criteria:
 # e.g. # function find_period_by_criteria(resultsDict)
 
-df_re = resSplit[:REZ_GEN_CU]
+df_rez = resSplit[:REZ_GEN_CU]
 
 # unique(df_re,[:Nodes,:Technologies])
 
-df_var = @linq df_re |>
+df_var = @linq df_rez |>
             where(.!occursin.(r"Hydro",:Technologies))
              # |>
             # select(:DemandRegion, :Technologies, :Hours, :AvailCap)
 
-df_re_days = @byrow! df_re begin
+df_rez_days = @byrow! df_rez begin
                 @newcol Day::Array{Int64}
                 :Day = div(:Hours-1,48/timestep) + 1
             end
@@ -192,62 +216,14 @@ df_var_sum_pivot = unstack(df_var_sum, :Day, :DemandRegion, :AvailCap_sum)
 x_days = Dict{Symbol,Dict{String,Int64}}()
 df_x_days = Dict{Symbol,Dict{String,DataFrame}}()
 
+df_x_results = Dict{Symbol,Dict{String,DataFrame}}()
+
 make_window(n,window_size) = (n-window_size):1:(n+window_size)
 # make_window(4,2) |> collect
 
 window_size = 1
 test_day = 320
 test_window = make_window(test_day,window_size)
-
-DemandRegions = dtr.sets[:DemandRegions]
-DR_Symbols = Symbol.(dtr.sets[:DemandRegions])
-for col in DR_Symbols
-    # col = :TAS1
-    df_dr = select(df_var_sum_pivot, [:Day, col])
-    # names(df_dr) |> display
-    sort!(df_dr, col)
-    x_days[col] = Dict{String,Int64}()
-    x_days[col]["min_day"] = df_dr[!,:Day][1]
-    x_days[col]["max_day"] = df_dr[!,:Day][end]
-    # TODO: check the end days are not first and last periods of year.
-
-    min_day = x_days[col]["min_day"]
-    max_day = x_days[col]["max_day"]
-
-    df_x_days[col] = Dict{String,Int64}()
-    df_x_days[col]["min_day"] = @linq df_re_days |>
-        where(:DemandRegion .== String(col)) |>
-        where(in.(:Day,[make_window(min_day,window_size)]))
-        # where(:Day .== min_day)
-
-    df_x_days[col]["max_day"] = @linq df_re_days |>
-        where(:DemandRegion .== String(col)) |>
-        where(in.(:Day,[make_window(max_day,window_size)]))
-end
-
-# Eye-balling plots:
-# x_days
-# @df df_var_sum_pivot plot(:Day, cols(DR_Symbols), legend=:outertopright)
-# @df df_var_sum_pivot plot(:Day, [:SA1], legend=:none)
-
-DemReg = :NSW1
-day_type = "max_day"
-
-df_x_rez = select(df_x_days[DemReg][day_type],names(df_txz_gen))
-
-hours_list = sort(unique(df_x_rez[!,:Hours]))
-
-df_x_txz = @linq df_txz_gen |>
-             where(in.(:Hours,[hours_list]))
-
-df_x = vcat(df_x_rez,df_x_txz)
-
-df_x_pivot = create_output_frame(techGroups, df_x, :G, :Hours, transpose_flag=true)
-
-df_demand = @where(dfDict["load"],
-            :DemandRegion .== String(DemReg),
-            in.(:TimeIndex,[hours_list])
-            )
 
 # Use inter-region flow DataFrame and filter for each region to obtain _net_ flow _from_ region:
 interflow_dict = Dict{String, DataFrame}()
@@ -257,29 +233,92 @@ for DR in dtr.sets[:DemandRegions]
               by(:Hours, Level = sum(:FLOW))
 end
 
-df_flow = @where(interflow_dict[String(DemReg)],
-                in.(:Hours,[hours_list])
-            )
+DemandRegions = dtr.sets[:DemandRegions]
+DR_Symbols = Symbol.(dtr.sets[:DemandRegions])
+for DemReg in DR_Symbols
+    # DemReg = :TAS1
+    # day_type = "max_day"
 
-insertcols!(df_x_pivot, ncol(df_x_pivot)+1, :Imports => df_flow[!,:Level])
-insertcols!(df_x_pivot, ncol(df_x_pivot)+1, :Demand => df_demand[!,:Load])
+    df_dr = select(df_var_sum_pivot, [:Day, DemReg])
+    # names(df_dr) |> display
+    sort!(df_dr, DemReg)
+    x_days[DemReg] = Dict{String,Int64}()
+    x_days[DemReg]["min_day"] = df_dr[!,:Day][1]
+    x_days[DemReg]["max_day"] = df_dr[!,:Day][end]
+    # TODO: check the end days are not first and last periods of year.
 
-df_sto_dr = @where(resSplit[:STORAGE],
-                :DemandRegion .== String(DemReg),
-                in.(:Hours,[hours_list])
-            )
+    # min_day = x_days[DemReg]["min_day"]
+    # max_day = x_days[DemReg]["max_day"]
 
-df_sto_dr = @byrow! df_sto_dr begin
-                @newcol STO_NET::Array{Float64}
-                :STO_NET = :STO_OUT - :STO_IN
+    df_x_days[DemReg] = Dict{String,DataFrame}()
+    df_x_results[DemReg] = Dict{String,DataFrame}()
+
+    for day_type in ["min_day", "max_day"]
+        df_x_days[DemReg][day_type] = @linq df_rez_days |>
+            where(:DemandRegion .== String(DemReg)) |>
+            where(in.(:Day,[make_window(x_days[DemReg][day_type],window_size)]))
+
+        df_x_rez = select(df_x_days[DemReg][day_type],names(df_txz_gen))
+
+        hours_list = sort(unique(df_x_rez[!,:Hours]))
+
+        df_x_txz = @where(df_txz_gen,
+                         :DemandRegion .== String(DemReg),
+                         in.(:Hours,[hours_list])
+                     )
+
+        df_x = vcat(df_x_rez,df_x_txz)
+
+        df_x_pivot = create_output_frame(techGroups, df_x, :G, :Hours, transpose_flag=true)
+
+        df_demand = @where(dfDict["load"],
+                          :DemandRegion .== String(DemReg),
+                          in.(:TimeIndex,[hours_list])
+                    )
+
+        df_flow = @where(interflow_dict[String(DemReg)],
+                        in.(:Hours,[hours_list])
+                    )
+
+        insertcols!(df_x_pivot, ncol(df_x_pivot)+1, :Imports => df_flow[!,:Level])
+        insertcols!(df_x_pivot, ncol(df_x_pivot)+1, :Demand => df_demand[!,:Load])
+
+        df_sto_dr = @where(resSplit[:STORAGE],
+                          :DemandRegion .== String(DemReg),
+                          in.(:Hours,[hours_list])
+                    )
+
+        df_sto_dr = @byrow! df_sto_dr begin
+                        @newcol STO_NET::Array{Float64}
+                        :STO_NET = :STO_OUT - :STO_IN
+                    end
+
+        df_s = create_output_frame(techGroups, df_sto_dr, :STO_NET, :Hours, transpose_flag=true)
+
+        df_x_final = join(df_x_pivot, df_s, on=[:Hours])
+
+        for tech in summary_tech
+            if !(tech in names(df_x_final))
+                insertcols!(df_x_final, ncol(df_x_final)+1, tech => zeros(size(df_x_final)[1]))
             end
+        end
 
-df_s = create_output_frame(techGroups, df_sto_dr, :STO_NET, :Hours, transpose_flag=true)
+        select!(df_x_final,:Hours,summary_tech...,:Imports,:Demand)
 
-df_x_final = join(df_x_pivot, df_s, on=[:Hours])
+        rename!(df_x_final, summary_map)
 
-for tech in summary_tech
-    if !(tech in names(df_x_final))
-        insertcols!(df_x_final, ncol(df_x_final)+1, tech => zeros(size(df_x_final)[1]))
+        xlsx_sheet_name = "DG_$(String(DemReg))_$(day_type)"
+        XLSX.openxlsx(xlsx_output_file, mode="rw") do xf
+            XLSX.addsheet!(xf,xlsx_sheet_name)
+                XLSX.writetable!(xf[xlsx_sheet_name], prepare_df_xlsx(df_x_final)...)
+        end
+
+        df_x_results[DemReg][day_type] = df_x_final
+
     end
 end
+
+# Eye-balling plots:
+# x_days
+# @df df_var_sum_pivot plot(:Day, cols(DR_Symbols), legend=:outertopright)
+# @df df_var_sum_pivot plot(:Day, [:SA1], legend=:none)

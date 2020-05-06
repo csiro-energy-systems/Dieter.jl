@@ -6,8 +6,11 @@ import XLSX
 prepare_df_xlsx(df) = ( collect(DataFrames.eachcol(df)), DataFrames.names(df) )
 
 scenario_timestamp = scen_settings[:scen]
+# scenario_timestamp = "Raw-Output-Template-Testing"
 
-xlsx_output_file = joinpath(resultsdir,"STABLE_summary-$(scenario_timestamp).xlsx")
+# cf. results_summary.jl
+# We annotate with the label "Direct" since we are not summarising the results into technology groupings:
+xlsx_output_file = joinpath(resultsdir,"STABLE_summary-Direct-$(scenario_timestamp).xlsx")
 
 CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Demand.csv"),dfDict["load"])
 CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Gen-TxZ.csv"),resSplit[:TxZ_GEN])

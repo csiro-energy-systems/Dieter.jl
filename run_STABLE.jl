@@ -47,24 +47,28 @@ Scenario_BattVPP_Dict = Dict(
       "Scen7_DCU" => 2,  # The DC Universe
       "Scen8_LCE" => 3   # Australia's Low Cost Energy Advantage
 )
+
+Scen_h2_setting = Dict("Scen1_BAU" => missing, "Scen2_DDC" => 0)
 # %% Scenario Settings (to customise by modeller)
 
-run_timestamp = "$(Date(Dates.now()))-H$(hour(now()))"
+run_timestamp = "$(Dates.Date(Dates.now()))-H$(Dates.hour(Dates.now()))"
 
 ScenarioName = "Scen1_BAU"
 # ScenarioName = "Scen2_DDC"
+
 # Specfied Year for the scenario setting:
 ScenarioYear = 2030
-ScYr_Sym = Symbol("FYE$ScenarioYear")  # Scenario year symbol
 
+ScYr_Sym = Symbol("FYE$ScenarioYear")  # Scenario year symbol
 ScenarioNumber = Scenario_Number_Dict[ScenarioName]
 
 # # If FixExistingCapFlag is `true`, then fix existing capacity to given values,
 # otherwise if `false` just use the existing capacity as an upper bound.
-FixExistingCapFlag = false
+FixExistingCapFlag = true
 
 NoNewGas = false
 NoNewDistillate = false
+
 Note = "Testing"
 
 scen_settings = Dict{Symbol,Any}()
@@ -104,7 +108,7 @@ scen_settings[:cost_scaling] = 1 # 1.0e-6
 scen_settings[:min_res] = 10
 scen_settings[:ev] = missing
 scen_settings[:heat] = missing
-scen_settings[:h2] = 0  # missing -> H2 not included, any number -> H2 included
+scen_settings[:h2] = Scen_h2_setting[ScenarioName]  # missing -> H2 not included, any number -> H2 included
 
 
 # Half-hourly: timestep=1, Hourly: timestep=2,
@@ -881,31 +885,31 @@ ExistingCapDict = filter(x -> x.second > 0, dtr.parameters[:ExistingCapacity])
 # Overwrite with any imposed scenario capacities read via "tech_scenario" files:
 FixCapDict = merge(ExistingCapDict,ScenarioCapacityDict)
 
-if FixExistingCapFlag == true
-      # # Fix the capacity of existing generation and storage technologies
-      for (n,t) in keys(FixCapDict)
-            if (n,t) in dtr.sets[:Nodes_Techs]
-                  JuMP.fix(N_TECH[(n,t)], FixCapDict[(n,t)]; force=true)
-            end
-            if (n,t) in dtr.sets[:Nodes_Storages]
-                  JuMP.fix(N_STO_P[(n,t)], FixCapDict[(n,t)] ; force=true)
-                  JuMP.fix(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*FixCapDict[(n,t)]; force=true)
-            end
+# if FixExistingCapFlag == true
+# # Fix the capacity of existing generation and storage technologies
+for (n,t) in keys(FixCapDict)
+      if (n,t) in dtr.sets[:Nodes_Techs]
+            JuMP.fix(N_TECH[(n,t)], FixCapDict[(n,t)]; force=true)
       end
-elseif FixExistingCapFlag == false
-      # # Fix the capacity of existing generation and storage technologies
-      for (n,t) in keys(FixCapDict)
-            if (n,t) in dtr.sets[:Nodes_Techs]
-                  JuMP.set_upper_bound(N_TECH[(n,t)], FixCapDict[(n,t)])
-            end
-            if (n,t) in dtr.sets[:Nodes_Storages]
-                  JuMP.set_upper_bound(N_STO_P[(n,t)], FixCapDict[(n,t)])
-                  JuMP.set_upper_bound(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*FixCapDict[(n,t)])
-            end
+      if (n,t) in dtr.sets[:Nodes_Storages]
+            JuMP.fix(N_STO_P[(n,t)], FixCapDict[(n,t)] ; force=true)
+            JuMP.fix(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*FixCapDict[(n,t)]; force=true)
       end
-else
-      @warn "The treatment of existing capacity is undefined."
 end
+# elseif FixExistingCapFlag == false
+#       # # Fix the capacity of existing generation and storage technologies
+#       for (n,t) in keys(FixCapDict)
+#             if (n,t) in dtr.sets[:Nodes_Techs]
+#                   JuMP.set_upper_bound(N_TECH[(n,t)], FixCapDict[(n,t)])
+#             end
+#             if (n,t) in dtr.sets[:Nodes_Storages]
+#                   JuMP.set_upper_bound(N_STO_P[(n,t)], FixCapDict[(n,t)])
+#                   JuMP.set_upper_bound(N_STO_E[(n,t)], MaxEtoP_ratio[n,t]*FixCapDict[(n,t)])
+#             end
+#       end
+# else
+#       @warn "The treatment of existing capacity is undefined."
+# end
 
 # Coal_ExistingCapDict = Dict([x for x in par[:ExistingCapacity]
 #       if x.first in keys(dvalmatch(par[:FuelType],r"Coal")) && par[:Status][x.first] == "GenericExisting"])
@@ -1029,9 +1033,9 @@ res = dtr.results
 # solved_dtr = copy(dtr)
 # solved_dtr.model = []
 Serialization.serialize(joinpath(resultsdir,results_filename), dtr.results)
-# res = Serialization.deserialize(joinpath(resultsdir,results_filename))
-
 Serialization.serialize(joinpath(resultsdir,scenario_timestamp*".settings"),dtr.settings)
+
+# res = Serialization.deserialize(joinpath(resultsdir,results_filename))
 
 # timestep = 2
 # timestep = dtr.settings[:timestep]
@@ -1054,4 +1058,5 @@ include("src/write.jl")
 #
 
 # %% Plot timeseries
-include("src/plot_timeseries.jl")
+
+# include("src/plot_timeseries.jl")
