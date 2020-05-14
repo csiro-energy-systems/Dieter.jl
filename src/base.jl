@@ -173,12 +173,26 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
     return nothing
 end
 
+#   e.g.  df = dfDict["nodes"]
+# Columns: | Nodes │ NodeType │ NodePromote │ DemandRegion | IncludeFlag |
+# Expected that NodeType has (at least) entries including ["TxZone", "REZone"]
 function parse_nodes!(dtr::DieterModel, df::DataFrame)
 
     dtr.sets[:Nodes] = disallowmissing(unique(df[!, :Nodes]))
-    dtr.sets[:NodeTypes] = disallowmissing(unique(df[!, :NodeTypes]))
+    dtr.sets[:NodeType] = disallowmissing(unique(df[!, :NodeType]))
     dtr.sets[:DemandRegions] = collect(skipmissing(unique(df[!, :DemandRegion])))
     # dtr.sets[:Regions] = disallowmissing(unique(df[!, :Region]))
+
+    # Obtain the Transmission Zones
+    dtr.sets[:TxZones] = (@where(df,:NodeType .== "TxZone"))[!,:Nodes]
+    # Obtain the Renewable Energy Zones
+    dtr.sets[:REZones] = (@where(df,:NodeType .== "REZone"))[!,:Nodes]
+
+    # Equate Demand Zones to Transmission Zones
+    dtr.sets[:DemandZones] = dtr.sets[:TxZones]
+
+    # Provide a dict (lookup map) between nodes and the associated demand region
+    dtr.parameters[:node_demreg_dict] = Dict(zip(df[!,:Nodes],df[!,:DemandRegion]))
 
     return nothing
 end
@@ -254,7 +268,8 @@ function parse_load!(dtr::DieterModel, df::DataFrame)
     # df = CSV.read(path)
     # dtr.parameters[:Load] = disallowmissing(df[!,:Load])  ## TODO ?? Construct as Dict, not array ?
 
-    params = map_idcol(df, [:DemandRegion, :TimeIndex], skip_cols=Symbol[])
+    params = map_idcol(df, [:Nodes, :TimeIndex], skip_cols=Symbol[])
+    # params = map_idcol(df, [:DemandRegion, :TimeIndex], skip_cols=Symbol[])
     for (k,v) in params update_dict!(dtr.parameters, k, v) end
 
     return nothing
@@ -307,13 +322,14 @@ function initialise_set_relation_data!(dtr)
     # rel_node_storages = filter(x->f_node_storages(x[1],x[2]),[(n,s) for n in N for s in S])
 
     # Relation between a node and associated type
-    rel_node_type = create_relation(dfDict["nodes"],:Nodes,:NodeTypes,:IncludeFlag)
+    rel_node_type = create_relation(dfDict["nodes"],:Nodes,:NodeType,:IncludeFlag)
 
     # Relation between a node and associated type above (its promotion)
     rel_node_promote = create_relation(dfDict["nodes"],:Nodes,:NodePromote,:IncludeFlag)
 
-    # Relation between a node and a demand region
-    rel_node_demand = create_relation(dfDict["map_node_demand"],:Nodes,:DemandRegion,:IncludeFlag)
+    # Relation between a node and demand
+    rel_node_demand = create_relation(dfDict["map_node_demand"],:Nodes,:DemandZone,:IncludeFlag)
+    # rel_node_demand = create_relation(dfDict["map_node_demand"],:Nodes,:DemandRegion,:IncludeFlag)
 
     # Relation between a node and incident/connected nodes (inter-connectors)
     rel_node_incidence = create_relation(dfDict["arcs"],:FromNode,:ToNode,:TransferLimit)
@@ -333,8 +349,9 @@ end
 function parse_set_relations!(dtr)
 
     Nodes = dtr.sets[:Nodes]
-    NodeTypes = dtr.sets[:NodeTypes]
+    NodeType = dtr.sets[:NodeType]
     DemandRegions = dtr.sets[:DemandRegions]
+    DemandZones = dtr.sets[:DemandZones]
 
     Technologies = dtr.sets[:Technologies]
     Storages = dtr.sets[:Storages]
@@ -359,20 +376,21 @@ function parse_set_relations!(dtr)
 
     # Relation between a node and associated type
     rel_node_type = dtr.data["relations"]["rel_node_type"]
-    dtr.sets[:Nodes_Types] = tuple2_filter(rel_node_type, Nodes, NodeTypes)
+    dtr.sets[:Nodes_Types] = tuple2_filter(rel_node_type, Nodes, NodeType)
 
     # Obtain the Transmission Zones
-    dtr.sets[:TxZones] = [x[1] for x in filter(x -> (x[2]=="TxZone"),dtr.sets[:Nodes_Types])]
+    # dtr.sets[:TxZones] = [x[1] for x in filter(x -> (x[2]=="TxZone"),dtr.sets[:Nodes_Types])]
     # Obtain the Renewable Energy Zones
-    dtr.sets[:REZones] = [x[1] for x in filter(x -> (x[2]=="REZone"),dtr.sets[:Nodes_Types])]
+    # dtr.sets[:REZones] = [x[1] for x in filter(x -> (x[2]=="REZone"),dtr.sets[:Nodes_Types])]
 
     # Relation between a node and associated type above (its promotion)
     rel_node_promote = dtr.data["relations"]["rel_node_promote"]
     dtr.sets[:Nodes_Promotes] = tuple2_filter(rel_node_promote, Nodes, Nodes)
 
-    # Relation between a node and associated demand region
+    # Relation between a node and associated demand
     rel_node_demand = dtr.data["relations"]["rel_node_demand"]
-    dtr.sets[:Nodes_Demand] = tuple2_filter(rel_node_demand, Nodes, DemandRegions)
+    dtr.sets[:Nodes_Demand] = tuple2_filter(rel_node_demand, Nodes, DemandZones)
+    # dtr.sets[:Nodes_Demand] = tuple2_filter(rel_node_demand, Nodes, DemandRegions)
 
     return nothing
 

@@ -138,10 +138,10 @@ end
 
 # %% Filters
 df_nodes = dtr.data["dataframes"]["nodes"]
-node2type = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:NodeTypes]))
+node2type = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:NodeType]))
 
-# rel_nodes_rez = Dieter.create_relation(@where(df_nodes,:NodeTypes .== "REZone"),:Nodes,:NodeTypes,:IncludeFlag)
-# rel_nodes_txz = Dieter.create_relation(@where(df_nodes,:NodeTypes .== "TxZone"),:Nodes,:NodeTypes,:IncludeFlag)
+# rel_nodes_rez = Dieter.create_relation(@where(df_nodes,:NodeType .== "REZone"),:Nodes,:NodeType,:IncludeFlag)
+# rel_nodes_txz = Dieter.create_relation(@where(df_nodes,:NodeType .== "TxZone"),:Nodes,:NodeType,:IncludeFlag)
 
 REZones = dtr.sets[:REZones]
 TxZones = dtr.sets[:TxZones]
@@ -268,7 +268,7 @@ TxZone_augmentIndex = Dict(
 #  :FLOW => :From, :FLOW => [:From,:To]
 #  :G_REZ => [:REZones],  :G_TxZ => [:TxZones],  :N_RES_EXP => [:REZones],
 
-df_nodes_rez = filter(row -> row[:NodeTypes] == "REZone", df_nodes)
+df_nodes_rez = filter(row -> row[:NodeType] == "REZone", df_nodes)
 rez2TxZone = Dict(zip(df_nodes_rez[!,:Nodes],df_nodes_rez[!,:NodePromote]))
 
 function REZ_TxZone_map!(df::DataFrame,input_colname::Symbol, output_colname::Symbol)

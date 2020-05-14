@@ -45,8 +45,12 @@ function build_model!(dtr::DieterModel,
 
     Nodes = dtr.sets[:Nodes]
 
+    TxZones = dtr.sets[:TxZones]
+    REZones = dtr.sets[:REZones]
+
+    DemandZones = dtr.sets[:DemandZones]
     DemandRegions = dtr.sets[:DemandRegions]
-    node2DemReg = dtr.parameters[:node_demreg_map]
+    node2DemReg = dtr.parameters[:node_demreg_dict]
 
     # Transformations on the minimum renewable share settings:
     min_res_dict = Dict{String,Float64}()
@@ -90,11 +94,6 @@ function build_model!(dtr::DieterModel,
     Nodes_Promotes = dtr.sets[:Nodes_Promotes]
 
     Nodes_Demand = dtr.sets[:Nodes_Demand]
-
-    TxZones = dtr.sets[:TxZones]
-    REZones = dtr.sets[:REZones]
-    # TxZones = [x[1] for x in filter(x -> (x[2]=="TxZone"),Nodes_Types)]
-    # REZones = [x[1] for x in filter(x -> (x[2]=="REZone"),Nodes_Types)]
 
     ## Electric Vehicles
     EV = dtr.sets[:ElectricVehicles]
@@ -336,10 +335,12 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         - sum(FLOW[(from,to),h] for (from,to) in Arcs if from == zone)
     );
 
+# # TODO : An explicit assumption in EnergyBalance is that H2_G2P and H2_P2G are
+# indexed over DemandZones; we should add additional checks to verify this holds.
 
     # Energy balance at each demand node:
     @info "Energy balance at each demand node."
-    @constraint(m, EnergyBalance[n=DemandRegions,h=Hours],
+    @constraint(m, EnergyBalance[n=DemandZones,h=Hours],
       # sum(G[(p,t),h] for (p,t) in Nodes_Techs if p == n)
 
       sum(G_TxZ[zone,h] for (zone, d) in Nodes_Demand if d == n)
@@ -457,14 +458,14 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
                 for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
                 >= InertiaMinSecure[dr]*RequireRatio[dr]
     );
-
+#=
     @info "Carbon budget upper limit (annual)"
-    @constraint(m, CarbonBudgetLimit[dr=DemandRegions],
+    @constraint(m, CarbonBudgetLimit,
         sum((CarbonContent[n,t]/Efficiency[n,t]) * G[(n,t),h]
                 for (n,t) in Nodes_Techs, h in Hours)
         <= CarbonBudget
     );
-#=
+
     if !(isDictAllMissing(MaxRampRate))
         @info "Maximum ramp rates"
         @constraint(m, RampingLimits[(n,t)=Nodes_Techs, h=Hours; !(MaxRampRate[n,t] |> ismissing)],
@@ -482,25 +483,29 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @info "Minimum yearly renewables requirement."
     @constraint(m, MinRES[n=DemandRegions],
         sum(
-           sum(G[(z,t),h] for (z,t) in Nodes_Renew if z == zone)
+           sum(G[(z,t),h] for (z,t) in Nodes_Renew if z == zone)  # Any renewable TxZone-level tech.
          + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
-         for (zone, d) in Nodes_Demand if d == n
-         for h in Hours
+
+         + sum(H2_G2P[(z,g2p),h] for (z,g2p) in Nodes_G2P if z == zone)
+         - sum(H2_P2G[(z,p2g),h] for (z,p2g) in Nodes_P2G if z == zone)
+
+        for (zone, d) in Nodes_Demand if node2DemReg[d] == n
+        for h in Hours
         )
-        + sum(H2_G2P[(n,g2p),h] for (n,g2p) in Nodes_G2P for h in Hours)
-        - sum(H2_P2G[(n,p2g),h] for (n,p2g) in Nodes_P2G for h in Hours)
         >=
         (min_res_dict[n]/100)*(
             sum(
                sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
              + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
              + sum(STO_OUT[(z,sto),h] - STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
-             for (zone, d) in Nodes_Demand if d == n
-             for h in Hours
-            )
-            + sum(H2_G2P[(n,g2p),h] for (n,g2p) in Nodes_G2P for h in Hours)
-            - sum(H2_P2G[(n,p2g),h] for (n,p2g) in Nodes_P2G for h in Hours)
-            )
+
+             + sum(H2_G2P[(z,g2p),h] for (z,g2p) in Nodes_G2P if z == zone)
+             - sum(H2_P2G[(z,p2g),h] for (z,p2g) in Nodes_P2G if z == zone)
+
+            for (zone, d) in Nodes_Demand if node2DemReg[d] == n
+            for h in Hours
+         )
+       )
     );
     # Note: if there is NO renewable energy associated to the DemandRegion, then this constraint will
     # act to zero out ALL generation associated to the DemandRegion.

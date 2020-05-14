@@ -53,11 +53,12 @@ Scen_h2_setting = Dict("Scen1_BAU" => missing, "Scen2_DDC" => 0)
 
 run_timestamp = "$(Dates.Date(Dates.now()))-H$(Dates.hour(Dates.now()))"
 
-# ScenarioName = "Scen1_BAU"
-ScenarioName = "Scen2_DDC"
+ScenarioName = "Scen1_BAU"
+# ScenarioName = "Scen2_DDC"
 
 # Specfied Year for the scenario setting:
-ScenarioYear = 2050
+ScenarioYear = 2030
+# ScenarioYear = 2050
 
 ScYr_Sym = Symbol("FYE$ScenarioYear")  # Scenario year symbol
 ScenarioNumber = Scenario_Number_Dict[ScenarioName]
@@ -177,12 +178,13 @@ fileDict = dtr.data["files"]
 dfDict["nodes"] = parse_file(fileDict["nodes"]; dataname=dataname)
 parse_nodes!(dtr,dfDict["nodes"])
 
+TxZones = dtr.sets[:TxZones]
+REZones = dtr.sets[:REZones]
+
+DemandZones = dtr.sets[:DemandZones]
 DemandRegions = dtr.sets[:DemandRegions]
 
-df_nodes = dfDict["nodes"]
-node2DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
-
-dtr.parameters[:node_demreg_map] = node2DemReg
+node2DemReg = dtr.parameters[:node_demreg_dict]
 
 # e.g. fileDict["tech"] = joinpath(datapath,"base","technologies.csv")
 dfDict["tech"] = parse_file(fileDict["tech"]; dataname=dataname)
@@ -237,7 +239,7 @@ df_add_vpp = @byrow! df_new_vpp begin
             end
 
 df_add_vpp_map = @byrow! df_add_vpp begin
-                  # Annotate with the Demand Region:
+                  # Include all new storage tech.:
                   @newcol IncludeFlag::Array{Int64}
                   :IncludeFlag = 1
             end
@@ -647,14 +649,48 @@ if size(df_load_neg)[1] !== 0
       @info "Negative demand values found: $(size(df_load_neg)[1]) values."
       @info "Setting negative values to 0."
       df_threshold = @byrow! dfDict["load"] begin
+                    @newcol NegLoad::Array{Float64}
                     if :Load .< 0
+                       :NegLoad = -(:Load)
                        :Load = 0
+                    else
+                        :NegLoad = 0
                     end
        end
 end
 
-dfDict["load"] = df_threshold
+dfDict["load"] = select(df_threshold, Not(:NegLoad))
+
+# %% Calculate total and peak demand
+# DemandRegions = dtr.sets[:DemandRegions]
+YearlyEnergy = Dict{String,Float64}()
+Peaks = Dict{String,Float64}()
+for dr in DemandRegions
+      YearlyEnergy[dr] = 1e-3*sum(@where(dfDict["load"], :DemandRegion .== dr)[!,:Load])
+      # 1e-3*sum(values(dkeymatch(dtr.parameters[:Load],Regex(dr),1)))
+      Peaks[dr] = maximum(@where(dfDict["load"], :DemandRegion .== dr)[!,:Load])
+      # maximum(values(dkeymatch(dtr.parameters[:Load],Regex(dr),1)))
+end
+
+dtr.parameters[:Peaks] = Peaks
+
 # %% Scenario modification of Demand :
+
+# Transform from Demand Region to a sub-regional Demand Zone with a certain split:
+fileDict["demand_split"] = joinpath(datapath,"base","demand_split.sql")
+dfDict["demand_split"] = parse_file(fileDict["demand_split"]; dataname=dataname)
+# Expected columns: | DemandZone | DemandRegion | DemandShare |
+
+# Join the Demand Zones along the superset of Demand Regions:
+df_load_aug = join(dfDict["load"],dfDict["demand_split"], on = :DemandRegion)
+# Combine the demand with the shared split:
+df_load_zone = @linq df_load_aug |>
+                  transform(LoadShare = :Load .* :DemandShare) |>
+                  select(:TimeIndex, :DemandZone, :LoadShare)
+rename!(df_load_zone, Dict(:DemandZone => :Nodes, :LoadShare => :Load))
+
+dfDict["load"] = df_load_zone
+
 #  Note : not needed if input data is correct without modification
 # fileDict["demand_scenario"] = joinpath(datapath,"base","demand_scenario.sql")
 # dfDict["demand_scenario"] = parse_file(fileDict["demand_scenario"]; dataname=dataname)
@@ -682,14 +718,6 @@ dfDict["load"] = @byrow! dfDict["load"] begin
 # CSV.write(joinpath(resultsdir,"$(run_timestamp)-Load.csv"),dfDict["load"])
 parse_load!(dtr, dfDict["load"])
 
-# %% Calculate peak demand
-DemandRegions = dtr.sets[:DemandRegions]
-Peaks = Dict{String,Float64}()
-for dr in DemandRegions
-      Peaks[dr] = maximum(values(dkeymatch(dtr.parameters[:Load],Regex(dr),1)))
-end
-
-dtr.parameters[:Peaks] = Peaks
 
 # %% Inertia -  data and constraints
 
@@ -989,16 +1017,13 @@ SchemeToRegion["OvensMurray"] = [("V1", "Hydro_Exi")]
 # df_tech = dfDict["tech"][!,[:Technologies, :Status]] |> dropmissing
 # tech_status = Dict(zip(df_tech[!,:Technologies],df_tech[!,:Status]))
 #
-# df_nodes = dfDict["nodes"] |> dropmissing
-# node_DemReg = Dict(zip(df_nodes[!,:Nodes],df_nodes[!,:DemandRegion]))
-#
 # df_node_tech = @linq dfDict["map_node_tech"] |>
 #                   where(:IncludeFlag .== 1) |>
 #                   select(:Nodes, :Technologies) |>
 #                   dropmissing
 #
 # df_node_tech[!,:Status] = map(x -> tech_status[x], df_node_tech[!,:Technologies])
-# df_node_tech[!,:DemandRegion] = map(x -> node_DemReg[x], df_node_tech[!,:Nodes])
+# df_node_tech[!,:DemandRegion] = map(x -> node2DemReg[x], df_node_tech[!,:Nodes])
 #
 # for x in eachrow(df_node_tech)
 #       if x.Status == "NewEntrant"

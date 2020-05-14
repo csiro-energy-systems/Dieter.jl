@@ -1,7 +1,7 @@
 SELECT
 -- * FROM Nodes_Def
 RegionID as Nodes,
-RegionType as NodeTypes,
+RegionType as NodeType,
 SuperRegion as NodePromote,
 DemandRegion,
 IncludeLevel as IncludeFlag
