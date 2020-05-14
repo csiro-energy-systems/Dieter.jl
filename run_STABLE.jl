@@ -53,11 +53,11 @@ Scen_h2_setting = Dict("Scen1_BAU" => missing, "Scen2_DDC" => 0)
 
 run_timestamp = "$(Dates.Date(Dates.now()))-H$(Dates.hour(Dates.now()))"
 
-ScenarioName = "Scen1_BAU"
-# ScenarioName = "Scen2_DDC"
+# ScenarioName = "Scen1_BAU"
+ScenarioName = "Scen2_DDC"
 
 # Specfied Year for the scenario setting:
-ScenarioYear = 2030
+ScenarioYear = 2050
 
 ScYr_Sym = Symbol("FYE$ScenarioYear")  # Scenario year symbol
 ScenarioNumber = Scenario_Number_Dict[ScenarioName]
@@ -641,6 +641,19 @@ dfDict["load"] = @linq df_OpDem_stack |>
                   transform(DemandRegion = String.(:variable), Load = :value) |>
                   select(:TimeIndex,:DemandRegion,:Load)
 
+df_load_neg = @where(dfDict["load"], :Load .< 0)
+
+if size(df_load_neg)[1] !== 0
+      @info "Negative demand values found: $(size(df_load_neg)[1]) values."
+      @info "Setting negative values to 0."
+      df_threshold = @byrow! dfDict["load"] begin
+                    if :Load .< 0
+                       :Load = 0
+                    end
+       end
+end
+
+dfDict["load"] = df_threshold
 # %% Scenario modification of Demand :
 #  Note : not needed if input data is correct without modification
 # fileDict["demand_scenario"] = joinpath(datapath,"base","demand_scenario.sql")

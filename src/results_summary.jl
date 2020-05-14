@@ -169,14 +169,17 @@ end
 df_txz_gen = resSplit[:TxZ_GEN]
 df_rez_gen = resSplit[:REZ_GEN]
 
-df_txz_gen_pivot = create_output_frame(techGroups, resSplit[:TxZ_GEN], :G, :DemandRegion)
-df_rez_gen_pivot = create_output_frame(techGroups, resSplit[:REZ_GEN], :G, :DemandRegion)
+df_txz_gen_pivot = create_output_frame(techGroups, resSplit[:TxZ_GEN],
+                            :G, :DemandRegion, map_names=true, map_dict=summary_dict)
+df_rez_gen_pivot = create_output_frame(techGroups, resSplit[:REZ_GEN],
+                            :G, :DemandRegion, map_names=true, map_dict=summary_dict))
 
 df_gen_all = vcat(df_txz_gen_pivot, df_rez_gen_pivot)
 
 df_gen_GWh = scale_dataframe(df_gen_all, :TechGroup, 1e-3)
 
-df_sto_in_pivot = create_output_frame(techGroups, resSplit[:STORAGE], :STO_OUT, :DemandRegion)
+df_sto_in_pivot = create_output_frame(techGroups, resSplit[:STORAGE],
+                            :STO_OUT, :DemandRegion, map_names=true, map_dict=summary_dict)
 df_sto_in_GWh = scale_dataframe(df_sto_in_pivot, :TechGroup, 1e-3)
 
 append!(df_gen_GWh,df_sto_in_GWh)
