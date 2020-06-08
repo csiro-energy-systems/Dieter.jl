@@ -13,6 +13,7 @@ scenario_timestamp = scen_settings[:scen]
 xlsx_output_file = joinpath(resultsdir,"STABLE_summary-Direct-$(scenario_timestamp).xlsx")
 
 CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Demand.csv"),dfDict["load"])
+CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Demand-Share.csv"),dfDict["load_share"])
 CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Gen-TxZ.csv"),resSplit[:TxZ_GEN])
 CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Gen-REZ.csv"),resSplit[:REZ_GEN_CU])
 

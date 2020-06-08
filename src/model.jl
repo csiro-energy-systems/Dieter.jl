@@ -157,7 +157,7 @@ function build_model!(dtr::DieterModel,
     TotalBuildCap = dtr.parameters[:TotalBuildCap]
     ExpansionLimit = dtr.parameters[:ExpansionLimit]
     TransExpansionCost = filter(x -> !ismissing(x[2]), dtr.parameters[:TransExpansionCost])
-    ConnectCost = dtr.parameters[:ConnectCost]
+    # ConnectCost = dtr.parameters[:ConnectCost]
 
     Load = dtr.parameters[:Load] # Units: MWh per time-interval; wholesale energy demand within a time-interval (e.g. hourly or 1/2-hourly)
 
@@ -167,6 +167,7 @@ function build_model!(dtr::DieterModel,
     LoadDecreaseCost = dtr.parameters[:LoadDecreaseCost] # Units: $/MW; Load change costs for changing generation downward
 
     TransferLimit = dtr.parameters[:TransferLimit] # Units: MW; Interconnector power transfer capability
+    TxZoneExpCost = dtr.parameters[:TxZoneExpCost] # Units: currency/MW; Interconnector power transfer expansion cost
 
     @info "Start of model building:"
 
@@ -187,6 +188,7 @@ function build_model!(dtr::DieterModel,
                     "Storage_capacity" => "N_STO_P",
                     "SynCon_capacity" => "N_SYNC",
                     "Internodal_flow" => "FLOW",
+                    "Internodal_flow_expansion" => "N_IC_EXP",
                     "H2_power_to_gas" => "H2_P2G",
                     "H2_gas_to_power" => "H2_G2P",
                     "H2_storage_level" => "H2_GS_L",
@@ -225,6 +227,7 @@ function build_model!(dtr::DieterModel,
             N_STO_P[Nodes_Storages], (base_name=shorter["Storage_capacity"], lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
             N_SYNC[DemandRegions], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MWs; synchronous condenser capacity (in MW x seconds) for each demand region
             FLOW[Arcs,Hours], (base_name=shorter["Internodal_flow"]) # Units: MWh; Power flow between nodes in topology
+            N_IC_EXP[Arcs], (base_name=shorter["Internodal_flow_expansion"]) # Units: MW; Power flow expansion betweeen TxZones
             EV_CHARGE[EV, Hours], (base_name=shorter["EV_charging"], lower_bound=0) # Units: MWh per time-interval; Electric vehicle charge for vehicle profile in set EV
             EV_DISCHARGE[EV, Hours], (base_name=shorter["EV_discharging"], lower_bound=0) # Units: MWh per time-interval; Electric vehicle dischargw for vehicle profile in set EV
             EV_L[EV, Hours], (base_name=shorter["EV_charge_level"], lower_bound=0) # Units: MWh at a given time-interval; Electric vehicle charging level for vehicle profile in set EV
@@ -284,6 +287,8 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(FixedCost[n,sto] * 0.5*(N_STO_P[(n,sto)] + N_STO_E[(n,sto)]) for (n,sto) in Nodes_Storages)
 
             + sum(TransExpansionCost[rez] * N_RES_EXP[rez] for rez in keys(TransExpansionCost) )
+
+            + sum(TxZoneExpCost[from,to] * N_IC_EXP[(from,to)] for (from,to) in Arcs)
 
             + sum(InvestmentCost[n,p2g] * N_P2G[(n,p2g)] for (n,p2g) in Nodes_P2G)
             + sum(InvestmentCost[n,g2p] * N_G2P[(n,g2p)] for (n,g2p) in Nodes_G2P)
@@ -366,7 +371,12 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     # Energy flow bounds:
     @info "Energy flow bounds."
     @constraint(m, FlowEnergyBound[(from,to)=Arcs,h=Hours],
-        FLOW[(from,to),h] <= time_ratio * TransferLimit[(from,to)]
+        FLOW[(from,to),h] <= time_ratio * ( TransferLimit[(from,to)] + N_IC_EXP[(from,to)] )
+    );
+
+    @info "Energy flow expansion symmetry."
+    @constraint(m, FlowEnergySymmetry[(from,to)=Arcs; from in Arcs_From],
+        N_IC_EXP[(from,to)] == N_IC_EXP[(to,from)]
     );
 
     # Generation level start - con2b_loadlevelstart

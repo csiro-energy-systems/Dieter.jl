@@ -172,7 +172,7 @@ df_rez_gen = resSplit[:REZ_GEN]
 df_txz_gen_pivot = create_output_frame(techGroups, resSplit[:TxZ_GEN],
                             :G, :DemandRegion, map_names=true, map_dict=summary_dict)
 df_rez_gen_pivot = create_output_frame(techGroups, resSplit[:REZ_GEN],
-                            :G, :DemandRegion, map_names=true, map_dict=summary_dict))
+                            :G, :DemandRegion, map_names=true, map_dict=summary_dict)
 
 df_gen_all = vcat(df_txz_gen_pivot, df_rez_gen_pivot)
 

@@ -52,11 +52,11 @@ The return type is a function that can be used with two "sets" A and B in
 function create_relation(df::DataFrame,First::Symbol,Second::Symbol,
                 Indicator::Symbol) # ; criterion=testfunc_returns_bool
 
-    if !(First in names(df))
+    if !(String(First) in names(df))
         @error "The symbol $First must be a valid name of the DataFrame."
-    elseif !(Second in names(df))
+    elseif !(String(Second) in names(df))
         @error "The symbol $Second must be a valid name of the DataFrame."
-    elseif !(Indicator in names(df))
+    elseif !(String(Indicator) in names(df))
         @error "The symbol $Indicator must be a valid name of the DataFrame."
     end
 
@@ -111,10 +111,10 @@ Dict{Symbol,Dict} with 1 entry:
 """
 function map_idcol(df::DataFrame, id_cols::Int; skip_cols=Symbol[])
 
-    push!(skip_cols, names(df)[id_cols])
+    push!(skip_cols, propertynames(df)[id_cols])
 
     if id_cols > 1
-        ids = collect(zip([col for col in eachcol(df[:,1:id_cols], false)]...))
+        ids = collect(zip([col for col in eachcol(df[:,1:id_cols])]...))
     else
         ids = df[!, 1]
     end
@@ -123,7 +123,7 @@ function map_idcol(df::DataFrame, id_cols::Int; skip_cols=Symbol[])
 
     dict = Dict{Symbol, Dict}()
 
-    for col in eachcol(non_id, true)
+    for col in pairs(eachcol(non_id))
         if !(col[1] in skip_cols)
             vals = Dict(collect(zip(ids,col[2])))
             dict[col[1]] = vals
@@ -141,8 +141,8 @@ function map_idcol(df::DataFrame, id_cols::Array{Symbol,1}; skip_cols=Symbol[])
         if sym in id_cols
             @warn "Skipped columm $sym is a member of the given id key columns.
                     It will be ignored."
-        elseif !(sym in names(df))
-            @warn "Skipped columm $sym is a not a column names in the DataFrame.
+        elseif !(sym in propertynames(df))
+            @warn "Skipped columm $sym is a not column name in the DataFrame.
                     It will be ignored."
         end
     end
@@ -155,11 +155,11 @@ function map_idcol(df::DataFrame, id_cols::Array{Symbol,1}; skip_cols=Symbol[])
         Keys = [Tuple(row[id_cols]) for row in eachrow(df)]
     end
 
-    non_id = setdiff(names(df),skip_cols)  # Remove skipped columms
+    non_id = setdiff(propertynames(df),skip_cols)  # Remove skipped columms
 
     dict = Dict{Symbol, Dict}()
 
-    for col in eachcol(df, true)
+    for col in pairs(eachcol(df))
         if col[1] in non_id
             dict[col[1]] = Dict(collect(zip(Keys,col[2])))
         end
@@ -172,7 +172,7 @@ end
 """
 Create a `Dict` from a `DataFrame` with the `DataFrame` column-names as keys and columns as values.
 """
-map_dfheader_to_col(df::DataFrame) = Dict(String(col[1]) => disallowmissing(col[2]) for col in eachcol(df, true))
+map_dfheader_to_col(df::DataFrame) = Dict(String(col[1]) => disallowmissing(col[2]) for col in pairs(eachcol(df)))
 
 get_variable_names(m::JuMP.Model) = [v.name for (k,v) in m.varData]  # varData requires instantiation for JuMP Model
 

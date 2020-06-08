@@ -12,11 +12,19 @@
 -- ON  FromType = ToType
 -- WHERE FromNodes != ToNodes
 --
--- SELECT FromNode, ToNode, TransferLimit
--- FROM
--- (SELECT FromNode, ToNode, ForwardLimit AS TransferLimit
--- FROM Arcs
--- UNION
--- SELECT ToNode AS FromNode, FromNode AS ToNode, ReverseLimit AS TransferLimit
--- FROM Arcs)
-SELECT * FROM Arcs_Def
+SELECT FromNode, ToNode, TransferLimit, TxZoneExpCost
+FROM
+(SELECT
+    FromNode,
+    ToNode,
+    ForwardLimit AS TransferLimit,
+    TxZoneExpCost*1000 AS TxZoneExpCost -- conversion from $/kW to $/MW
+FROM Arcs
+UNION
+SELECT
+    ToNode AS FromNode,
+    FromNode AS ToNode,
+    ReverseLimit AS TransferLimit,
+    TxZoneExpCost*1000 AS TxZoneExpCost -- conversion from $/kW to $/MW
+FROM Arcs)
+-- SELECT * FROM Arcs_Def

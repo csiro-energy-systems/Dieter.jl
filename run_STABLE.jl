@@ -57,8 +57,8 @@ ScenarioName = "Scen1_BAU"
 # ScenarioName = "Scen2_DDC"
 
 # Specfied Year for the scenario setting:
-ScenarioYear = 2030
-# ScenarioYear = 2050
+# ScenarioYear = 2030
+ScenarioYear = 2050
 
 ScYr_Sym = Symbol("FYE$ScenarioYear")  # Scenario year symbol
 ScenarioNumber = Scenario_Number_Dict[ScenarioName]
@@ -103,7 +103,7 @@ scen_settings[:scen] = run_timestamp*"-$(ScenarioName)-ScYr$(ScenarioYear)-$(Not
 
 scenario_timestamp = scen_settings[:scen]
 
-scen_settings[:interest] = 0.07
+scen_settings[:interest] = 0.059
 scen_settings[:cost_scaling] = 1 # 1.0e-6
 # Modify the :min_res setting over [0,100] and rerun to see comparison.
 scen_settings[:min_res] = 10
@@ -444,8 +444,8 @@ Mt_To_t = 1000 #  convert Mega-tonnes to tonnes
 dtr.settings[:carbon_budget] = Mt_To_t*Scen_co2[!,:CarbonBudget][1]  # Data units in Mt-CO2, convert to t-CO2
 
 # Add a Carbon Content column with zero values
-if !in(:CarbonContent, names(dfDict["tech"]))
-      insertcols!(dfDict["tech"], size(dfDict["tech"])[2], CarbonContent=zeros(size(dfDict["tech"])[1]))
+if !in(:CarbonContent, propertynames(dfDict["tech"]))
+      insertcols!(dfDict["tech"], size(dfDict["tech"])[2], :CarbonContent => zeros(size(dfDict["tech"])[1]))
 end
 
 # Note: CarbonContent is generally assumed to be in Units t-CO2/MWh-thermal
@@ -622,7 +622,7 @@ df_OpDem = DataFrame(ta_OpDem)
 # Transformations of the raw data:
 
 # If timestep = 2, we obtain an hourly approximation of half-hour data by sampling on every second data point:
-df_OpDem = df_OpDem[1:timestep:end,names(df_OpDem)]
+df_OpDem = df_OpDem[1:timestep:end,propertynames(df_OpDem)]
 
 # ta_OpDem = TimeArray(df_OpDem, timestamp = :datetime)
 dropmissing!(df_OpDem)
@@ -657,9 +657,9 @@ if size(df_load_neg)[1] !== 0
                         :NegLoad = 0
                     end
        end
+       dfDict["load"] = select(df_threshold, Not(:NegLoad))
 end
 
-dfDict["load"] = select(df_threshold, Not(:NegLoad))
 
 # %% Calculate total and peak demand
 # DemandRegions = dtr.sets[:DemandRegions]
@@ -682,14 +682,13 @@ dfDict["demand_split"] = parse_file(fileDict["demand_split"]; dataname=dataname)
 # Expected columns: | DemandZone | DemandRegion | DemandShare |
 
 # Join the Demand Zones along the superset of Demand Regions:
-df_load_aug = join(dfDict["load"],dfDict["demand_split"], on = :DemandRegion)
+df_load_join = innerjoin(dfDict["load"],dfDict["demand_split"], on = :DemandRegion)
 # Combine the demand with the shared split:
-df_load_zone = @linq df_load_aug |>
+dfDict["load_share"] = @linq df_load_join |>
                   transform(LoadShare = :Load .* :DemandShare) |>
                   select(:TimeIndex, :DemandZone, :LoadShare)
-rename!(df_load_zone, Dict(:DemandZone => :Nodes, :LoadShare => :Load))
+rename!(dfDict["load_share"], Dict(:DemandZone => :Nodes, :LoadShare => :Load))
 
-dfDict["load"] = df_load_zone
 
 #  Note : not needed if input data is correct without modification
 # fileDict["demand_scenario"] = joinpath(datapath,"base","demand_scenario.sql")
@@ -715,8 +714,9 @@ dfDict["load"] = @byrow! dfDict["load"] begin
                   end
 =#
 # %%
-# CSV.write(joinpath(resultsdir,"$(run_timestamp)-Load.csv"),dfDict["load"])
-parse_load!(dtr, dfDict["load"])
+
+parse_load!(dtr, dfDict["load_share"])
+# parse_load!(dtr, dfDict["load"])
 
 
 # %% Inertia -  data and constraints
@@ -806,7 +806,7 @@ for tech_class in ["Wind", "Solar"]
 
 
       # If timestep = 2, we obtain an hourly approximation of half-hour data by sampling on every second data point:
-      df_traces = df_traces[1:timestep:end,names(df_traces)]
+      df_traces = df_traces[1:timestep:end,propertynames(df_traces)]
 
       # Construct an integer OneTo(n)-like time indexing instead of timestamps:
       len_traces = nrow(df_traces)
@@ -820,11 +820,11 @@ for tech_class in ["Wind", "Solar"]
 
             # Require all necessary traces to exist:
             for rz in dtr.sets[:REZones]
-                  if rz in nodes_for_tech && !(Symbol(rz) in names(df_trace_mod))
+                  if rz in nodes_for_tech && !(Symbol(rz) in propertynames(df_trace_mod))
                         error("Require trace in $(rz) for technology $(tech_name)")
                   end
             # Remove unnecessary traces from data before compiling into model:
-                  if Symbol(rz) in names(df_trace_mod) && !(rz in nodes_for_tech)
+                  if Symbol(rz) in propertynames(df_trace_mod) && !(rz in nodes_for_tech)
                         @debug "Tech. not in zone: Removing $(tech_name) trace in $(rz)"
                         select!(df_trace_mod, Not(Symbol(rz)))
                   end
@@ -1045,7 +1045,7 @@ JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_LPMETHOD", 6)       #  0: aut
 JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_BAREPCOMP", 1e-6)   # Sets the tolerance on complementarity for convergence; default: 1e-8.
 
 # %% Solve the model and generate results
-println(dtr.settings)
+display(dtr.settings)
 solve_model!(dtr)
 resultsIndex = generate_results!(dtr)
 
