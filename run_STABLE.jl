@@ -626,7 +626,7 @@ df_OpDem = df_OpDem[1:timestep:end,propertynames(df_OpDem)]
 
 # ta_OpDem = TimeArray(df_OpDem, timestamp = :datetime)
 dropmissing!(df_OpDem)
-insertcols!(df_OpDem, 1, TimeIndex=collect(1:nrow(df_OpDem)))
+insertcols!(df_OpDem, 1, :TimeIndex => collect(1:nrow(df_OpDem)))
 select!(df_OpDem, Not(:timestamp))
 
 # reg_rename_dict = Dict(:nsw1 => :NSW1,
@@ -810,7 +810,7 @@ for tech_class in ["Wind", "Solar"]
 
       # Construct an integer OneTo(n)-like time indexing instead of timestamps:
       len_traces = nrow(df_traces)
-      insertcols!(df_traces, 1, TimeIndex=collect(1:len_traces))
+      insertcols!(df_traces, 1, :TimeIndex => collect(1:len_traces))
       select!(df_traces, Not(:timestamp))
 
       for tech_name in tech_subset[tech_class]
@@ -830,7 +830,7 @@ for tech_class in ["Wind", "Solar"]
                   end
             end
 
-            insertcols!(df_trace_mod, 1, TechTypeID=repeat([tech_name],len_traces))
+            insertcols!(df_trace_mod, 1, :TechTypeID => repeat([tech_name],len_traces))
             df_trace_stack = stack(df_trace_mod, Not([:TimeIndex,:TechTypeID]))
 
              df_trace_select = @linq df_trace_stack |>
@@ -846,7 +846,7 @@ parse_availibility!(dtr,dfDict["avail"])
 
 # # Assumption: there is a direct relationship between REZs and NonDispatchable techs.
 df_REZ_to_Techs = unique(dfDict["avail"][!,[:RenewRegionID,:TechTypeID]])
-insertcols!(df_REZ_to_Techs,3,IncludeFlag=ones(Int,nrow(df_REZ_to_Techs)))
+insertcols!(df_REZ_to_Techs,3, :IncludeFlag => ones(Int,nrow(df_REZ_to_Techs)))
 rel_rez_tech = Dieter.create_relation(df_REZ_to_Techs,:RenewRegionID,:TechTypeID,:IncludeFlag)
 Nodes = dtr.sets[:Nodes]
 NonDispatchable = dtr.sets[:NonDispatchable]
