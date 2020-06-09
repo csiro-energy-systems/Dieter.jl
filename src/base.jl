@@ -332,7 +332,7 @@ function initialise_set_relation_data!(dtr)
     # rel_node_demand = create_relation(dfDict["map_node_demand"],:Nodes,:DemandRegion,:IncludeFlag)
 
     # Relation between a node and incident/connected nodes (inter-connectors)
-    rel_node_incidence = create_relation(dfDict["arcs"],:FromNode,:ToNode,:TransferLimit)
+    rel_node_incidence = create_relation(dfDict["arcs"],:FromNode,:ToNode,:TransferCapacity)
 
     # Store the results:
     dtr.data["relations"]["rel_node_tech"] = rel_node_tech
@@ -406,8 +406,23 @@ function parse_arcs!(dtr::DieterModel, df::DataFrame)
 
     dtr.sets[:Arcs_From] = disallowmissing(unique(df[!,:FromNode]))
 
+    dtr.sets[:Arcs_REZones] = [(rez,txz) for (rez,txz) in dtr.sets[:Nodes_Promotes]
+                                if rez in dtr.sets[:REZones]]
+
     params = map_idcol(df, [:FromNode, :ToNode], skip_cols=Symbol[])
     for (k,v) in params update_dict!(dtr.parameters, k, v) end
+
+    return nothing
+end
+
+function calc_inv_trans_exp!(dtr::DieterModel)
+
+    tec = dtr.parameters[:TransExpansionCost]
+    lt_Tx = dtr.settings[:lifetime_Tx]
+    i = dtr.settings[:interest]
+
+    dict = Dict((from,to) => tec[from,to]*annuity(i, lt_Tx) for (from,to) in keys(tec))
+    update_dict!(dtr.parameters, :InvestmentCostTransExp, dict)
 
     return nothing
 end
@@ -415,7 +430,7 @@ end
 annuity(i,lifetime) = i*((1+i)^lifetime) / (((1+i)^lifetime)-1)
 # Equivalent alternative: annuity(i,lifetime) = i +  i/( ((1+i)^lifetime)-1 )
 
-
+"Calculate the amortised investment cost of technologies from capital costs."
 function calc_inv_tech!(dtr::DieterModel)
     Nodes_Techs = dtr.sets[:Nodes_Techs]
     # Nodes = dtr.sets[:Nodes]
@@ -431,7 +446,7 @@ function calc_inv_tech!(dtr::DieterModel)
     return nothing
 end
 
-
+"Calculate the amortised investment cost of technologies from capital costs."
 function calc_inv_storages!(dtr::DieterModel)
     Nodes_Storages = dtr.sets[:Nodes_Storages]
     # Nodes = dtr.sets[:Nodes]

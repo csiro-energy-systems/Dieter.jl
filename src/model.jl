@@ -79,6 +79,8 @@ function build_model!(dtr::DieterModel,
     # Mapping set definitions
     Arcs = dtr.sets[:Arcs]
     Arcs_From = dtr.sets[:Arcs_From]
+    Arcs_REZones = dtr.sets[:Arcs_REZones]
+
     Nodes_Techs = dtr.sets[:Nodes_Techs]
     Nodes_Storages = dtr.sets[:Nodes_Storages]
 
@@ -155,9 +157,16 @@ function build_model!(dtr::DieterModel,
     # WindLimit = dtr.parameters[:WindLimit]
     # SolarLimit = dtr.parameters[:SolarLimit]
     TotalBuildCap = dtr.parameters[:TotalBuildCap]
+
     ExpansionLimit = dtr.parameters[:ExpansionLimit]
-    TransExpansionCost = filter(x -> !ismissing(x[2]), dtr.parameters[:TransExpansionCost])
-    # ConnectCost = dtr.parameters[:ConnectCost]
+    ExpansionLimit_Tx = dtr.parameters[:ExpansionLimit_Tx]
+    TransferCapacity = dtr.parameters[:TransferCapacity] # Units: MW; Interconnector power transfer capability
+
+    # REZoneExpCost = dtr.parameters[:REZoneExpansionCost] # Units: currency/MW; REZ connection power transfer expansion cost
+    # TxConnExpCost = dtr.parameters[:TxZoneExpansionCost] # Units: currency/MW; Interconnector power transfer expansion cost
+
+    InvestmentCostTransExp = filter(x -> !ismissing(x[2]), dtr.parameters[:InvestmentCostTransExp])
+    InvestmentCostREZ_Exp = filter(x -> !ismissing(x[2]) && x[1] in Arcs_REZones, dtr.parameters[:InvestmentCostTransExp])
 
     Load = dtr.parameters[:Load] # Units: MWh per time-interval; wholesale energy demand within a time-interval (e.g. hourly or 1/2-hourly)
 
@@ -166,12 +175,14 @@ function build_model!(dtr::DieterModel,
     LoadIncreaseCost = dtr.parameters[:LoadIncreaseCost] # Units: $/MW; Load change costs for changing generation upward
     LoadDecreaseCost = dtr.parameters[:LoadDecreaseCost] # Units: $/MW; Load change costs for changing generation downward
 
-    TransferLimit = dtr.parameters[:TransferLimit] # Units: MW; Interconnector power transfer capability
-    TxZoneExpCost = dtr.parameters[:TxZoneExpCost] # Units: currency/MW; Interconnector power transfer expansion cost
 
     @info "Start of model building:"
 
     prog = Progress(7, dt=0.01, desc="Building Model...         \n", barlen=30)
+
+# %% * ----------------------------------------------------------------------- *
+#    ***** Variable definitions *****
+#    * ----------------------------------------------------------------------- *
 
     shorter =  Dict("Total_cost_objective" => "Z",
                     "Generation_level" => "G",
@@ -227,12 +238,14 @@ function build_model!(dtr::DieterModel,
             N_STO_P[Nodes_Storages], (base_name=shorter["Storage_capacity"], lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
             N_SYNC[DemandRegions], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MWs; synchronous condenser capacity (in MW x seconds) for each demand region
             FLOW[Arcs,Hours], (base_name=shorter["Internodal_flow"]) # Units: MWh; Power flow between nodes in topology
-            N_IC_EXP[Arcs], (base_name=shorter["Internodal_flow_expansion"]) # Units: MW; Power flow expansion betweeen TxZones
+            N_IC_EXP[Arcs], (base_name=shorter["Internodal_flow_expansion"], lower_bound=0) # Units: MW; Power flow expansion betweeen TxZones, and REZones to TxZones
+            #
             EV_CHARGE[EV, Hours], (base_name=shorter["EV_charging"], lower_bound=0) # Units: MWh per time-interval; Electric vehicle charge for vehicle profile in set EV
             EV_DISCHARGE[EV, Hours], (base_name=shorter["EV_discharging"], lower_bound=0) # Units: MWh per time-interval; Electric vehicle dischargw for vehicle profile in set EV
             EV_L[EV, Hours], (base_name=shorter["EV_charge_level"], lower_bound=0) # Units: MWh at a given time-interval; Electric vehicle charging level for vehicle profile in set EV
             EV_PHEVFUEL[EV, Hours], (base_name=shorter["EV_PHEV_fuel_use"], lower_bound=0) #  Plug-in hybrid electric vehicle conventional fuel use
             EV_INF[EV, Hours], (base_name=shorter["EV_infeasible"], lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Electric vehicle energy balance
+            #
             H2_P2G[Nodes_P2G, Hours], (base_name=shorter["H2_power_to_gas"], lower_bound=0) # Units: MWh per time-interval; Power-to-gas energy conversion
             H2_G2P[Nodes_G2P, Hours], (base_name=shorter["H2_gas_to_power"], lower_bound=0) # Units: MWh per time-interval; Gas-to-power energy conversion
             H2_GS_L[Nodes_GasStorages, Hours], (base_name=shorter["H2_storage_level"], lower_bound=0) # Units: tonnes-H2 at a given time-interval; Current gas storage level
@@ -241,12 +254,13 @@ function build_model!(dtr::DieterModel,
             N_P2G[Nodes_P2G], (base_name=shorter["H2_P2G_capacity"], lower_bound=0) # Units: MW; Power-to-gas capacity
             N_G2P[Nodes_G2P], (base_name=shorter["H2_G2P_capacity"], lower_bound=0) # Units: MW; Gas-to-power capacity
             N_GS[Nodes_GasStorages], (base_name=shorter["H2_storage_capacity"], lower_bound=0) # Units; tonnes-H2 ; Gas storage (energy) capacity
+            #
             HEAT_STO_L[BU,HP,Hours], (base_name=shorter["Heat_storage_level"], lower_bound=0) # Units: MWh at a given time-interval; Heating: storage level
             HEAT_HP_IN[BU,HP, Hours], (base_name=shorter["Heat_heat_pump_"], lower_bound=0)   # Units: MWh per time-interval; Heating: electricity demand from heat pump
             HEAT_INF[BU,HP, Hours], (base_name=shorter["Heat_infeasible"], lower_bound=0)  # Units: MWh per time-interval; Heating: Infeasibility term for Electric vehicle energy balance
     end)
 
-# %%   * --------------------------------------------------------------------- *
+# %% * ----------------------------------------------------------------------- *
 #    ***** Objective function *****
 #    * ----------------------------------------------------------------------- *
 
@@ -286,9 +300,8 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(FixedCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(FixedCost[n,sto] * 0.5*(N_STO_P[(n,sto)] + N_STO_E[(n,sto)]) for (n,sto) in Nodes_Storages)
 
-            + sum(TransExpansionCost[rez] * N_RES_EXP[rez] for rez in keys(TransExpansionCost) )
-
-            + sum(TxZoneExpCost[from,to] * N_IC_EXP[(from,to)] for (from,to) in Arcs)
+            + sum(InvestmentCostREZ_Exp[rez,txz] * N_RES_EXP[rez] for (rez,txz) in keys(InvestmentCostREZ_Exp) )
+            + sum(InvestmentCostTransExp[from,to] * N_IC_EXP[(from,to)] for (from,to) in Arcs)
 
             + sum(InvestmentCost[n,p2g] * N_P2G[(n,p2g)] for (n,p2g) in Nodes_P2G)
             + sum(InvestmentCost[n,g2p] * N_G2P[(n,g2p)] for (n,g2p) in Nodes_G2P)
@@ -370,8 +383,12 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     # Energy flow bounds:
     @info "Energy flow bounds."
-    @constraint(m, FlowEnergyBound[(from,to)=Arcs,h=Hours],
-        FLOW[(from,to),h] <= time_ratio * ( TransferLimit[(from,to)] + N_IC_EXP[(from,to)] )
+    @constraint(m, FlowEnergyUpperBound[(from,to)=Arcs,h=Hours],
+        FLOW[(from,to),h] <= time_ratio * ( TransferCapacity[(from,to)] + N_IC_EXP[(from,to)] )
+    );
+
+    @constraint(m, FlowExpandUpperBound[(from,to)=Arcs],
+        N_IC_EXP[(from,to)] <= ExpansionLimit_Tx[(from,to)] 
     );
 
     @info "Energy flow expansion symmetry."
@@ -612,6 +629,10 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     next!(prog)
     println("\n")
 
+# %% * ----------------------------------------------------------------------- *
+#    ***** Electric vehicle constraints *****
+#    * ----------------------------------------------------------------------- *
+
     @info "Electric Vehicles: electric charge allowable."
     @constraint(m, MaxWithdrawEV[ev=EV,h=Hours],
         EV_CHARGE[ev,h] <= EvPower[ev][h]
@@ -653,6 +674,10 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     next!(prog)
     println("\n")
+
+# %% * ----------------------------------------------------------------------- *
+#    ***** Hydrogen constraints *****
+#    * ----------------------------------------------------------------------- *
 
     @info "Hydrogen: Variable upper bound on power-to-gas."
     @constraint(m, MaxP2G[(n,p2g)=Nodes_P2G,h=Hours],
@@ -708,6 +733,10 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     next!(prog)
     println("\n")
+
+# %% * ----------------------------------------------------------------------- *
+#    ***** Heat consumption constraints *****
+#    * ----------------------------------------------------------------------- *
 
     @constraint(m, HeatBalance[bu=BU, hp=HP, h=Hours2],
         HEAT_STO_L[bu,hp,h]
@@ -769,6 +798,7 @@ function generate_results!(dtr::DieterModel)
         :N_RES_EXP => [:REZones],
         :N_SYNC => [:DemandRegion],
         :FLOW => [:Arcs,:Hours],
+        :N_IC_EXP => [:Arcs],
 
         :EV_CHARGE => [:EV, :Hours],
         :EV_DISCHARGE => [:EV, :Hours],

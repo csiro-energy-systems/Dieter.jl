@@ -4,7 +4,7 @@
 using Dieter
 import Dieter: parse_file, parse_nodes!, parse_base_technologies!, parse_storages!, parse_load!, parse_availibility!
 import Dieter: initialise_set_relation_data!, parse_set_relations!,parse_arcs!, calc_base_parameters!, parse_extensions!
-import Dieter: dvalmatch, dkeymatch, split_df_tuple
+import Dieter: dvalmatch, dkeymatch, sortbyvals, split_df_tuple
 
 using JuMP
 # import MathOptInterface
@@ -111,6 +111,10 @@ scen_settings[:ev] = missing
 scen_settings[:heat] = missing
 scen_settings[:h2] = Scen_h2_setting[ScenarioName]  # missing -> H2 not included, any number -> H2 included
 
+# Lifetime for amortised transmission expansion investment
+scen_settings[:lifetime_Tx] = 40
+# Multiplier for setting upper bound on size of expansion:
+scen_settings[:exp_bound_multiple] = 10
 
 # Half-hourly: timestep=1, Hourly: timestep=2,
 # If timestep = 2, we obtain an hourly approximation of half-hour data by sampling on every second data point.
@@ -119,18 +123,12 @@ timestep = scen_settings[:timestep]
 
 # Set the scaling of existing coal
 scen_settings[:coal_adjust] = 1;
-# Set the maximum allowed contribution to peak demand by a single technology
+
+# # Set the maximum allowed contribution to peak demand by a single technology
 # scen_settings[:peak_factor] = 2.5;
 
 # CarbonBudgetDict by ScenarioName and ScenarioYear in millions of t-CO2 (Mt-CO2e)
-# Construction should normally be automated from a carbon scenario table...
-# CarbonBudgetDict["Scen1_BAU",2030] = 3500
-# CarbonBudgetDict["Scen1_BAU",2050] = 2800
-# CarbonBudgetDict["Scen2_DDC",2030] = 1500
-# CarbonBudgetDict["Scen2_DDC",2050] = 0
-#
 # scen_settings[:carbon_budget] = 1000*CarbonBudgetDict[ScenarioName,ScenarioYear]
-
 
 # %% Data paths and connections (to customise by modeller)
 
@@ -283,8 +281,11 @@ if NoNewDistillate
 end
 
 # %%  Relations to determine which (Nodes,Technologies) pairs are included in the model:
+# # Note: we should not change dfDict["map_node_tech"] and dfDict["map_node_storages"] beyond here:
 rel_node_tech = create_relation(dfDict["map_node_tech"],:Nodes,:Technologies,:IncludeFlag)
 rel_node_storages = create_relation(dfDict["map_node_storages"],:Nodes,:Technologies,:IncludeFlag)
+
+# These relations are also set up in parse_arcs!(..) called later on.
 
 # %% Renewable Energy Targets
 
@@ -370,6 +371,7 @@ params_msg = Dieter.map_idcol(dfDict["min_stable_gen"], [:Region, :Technologies]
 for (k,v) in params_msg Dieter.update_dict!(dtr.parameters, k, v) end
 
 # # REZ build parameters and bounds
+# Columns: Region │ WindLimitOnshore │ WindLimitOffshore │ SolarLimit │ TotalBuildCap │ ExpansionLimit │ TransExpansionCost
 fileDict["rez_build"] = joinpath(datapath,"base","rez_build.sql")
 dfDict["rez_build"] = parse_file(fileDict["rez_build"]; dataname=dataname)
 
@@ -377,13 +379,15 @@ params_rzb = Dieter.map_idcol(dfDict["rez_build"], [:Region], skip_cols=Symbol[]
 for (k,v) in params_rzb Dieter.update_dict!(dtr.parameters, k, v) end
 
 # # RE Zone connections parameters and bounds
+# Columns : Region │ Technologies │ ConnectCost
 fileDict["rez_connect"] = joinpath(datapath,"base","rez_connect.sql")
 dfDict["rez_connect"] = parse_file(fileDict["rez_connect"]; dataname=dataname)
 
 params_rzc = Dieter.map_idcol(dfDict["rez_connect"], [:Region, :Technologies], skip_cols=Symbol[])
 for (k,v) in params_rzc Dieter.update_dict!(dtr.parameters, k, v) end
 
-# # Transmission Zone connections parameters and bounds
+# # Transmission Zone new technology connection costs
+# Columns : Technologies │ Region | ConnectCost
 fileDict["TxZ_connect"] = joinpath(datapath,"base","TxZ_connect.sql")
 dfDict["TxZ_connect"] = parse_file(fileDict["TxZ_connect"]; dataname=dataname)
 
@@ -582,17 +586,61 @@ for rez in keys(TotalBuildCap)
 end
 
 # %% Parse data into model structure:
-
 parse_base_technologies!(dtr, dfDict["tech"])
-# parse_base_technologies!(dtr, dfDict["tech"])
-
 parse_storages!(dtr, dfDict["storage"])
-
-# %% Create relational sets
-
+# Create relational sets
 initialise_set_relation_data!(dtr)
 parse_set_relations!(dtr)
 parse_arcs!(dtr,dfDict["arcs"])
+
+# %% Transmission expansion along arcs
+# # We construct a dictionary of tranmission expansion costs, indexed by arcs `(from,to)`
+# # where `from` may be in `REZones` or `TxZones`, and `to` is in `TxZones`
+
+# Total transfer capacities:
+#     Total transfer capacity for `REZones` is called `TotalBuildCap` (following AEMO ISP)
+#     We retain this parameter for the `REZBuildLimits` constraint
+# TotalBuildCap = dtr.parameters[:TotalBuildCap]
+
+#      Map REZone connections to TxZones together with values of TotalBuildCap
+TransferCapacityREZ = Dict((rez,txz) => TotalBuildCap[rez]
+                        for (rez,txz) in dtr.sets[:Nodes_Promotes] if rez in REZones)
+
+#      Arcs mapped to transfer capacity are already in dtr.parameters[:TransferCapacity]
+TransferCapacityTxZ = copy(dtr.parameters[:TransferCapacity]) # Units: MW; Interconnector power transfer capability
+
+#      Merge to have all transfer capacities (TxZones and REZones) together
+merge!(dtr.parameters[:TransferCapacity],TransferCapacityREZ)
+
+# Transmission expansion costs:
+
+TxZoneExpansionCost = dtr.parameters[:TxZoneExpansionCost] # Units: currency/MW; Interconnector power transfer expansion cost
+
+# REZone expansion cost (read from table `REZ_Build`)
+REZoneExpansionCost = dtr.parameters[:REZoneExpansionCost]
+# Filter missing values
+# REZoneExpansionCost = filter(x -> !ismissing(x[2]), dtr.parameters[:TransExpansionCost])
+
+TransExpansionCost = Dict((rez,txz) => REZoneExpansionCost[rez]
+                        for (rez,txz) in dtr.sets[:Nodes_Promotes] if rez in REZones)
+
+merge!(TransExpansionCost,TxZoneExpansionCost)
+
+dtr.parameters[:TransExpansionCost] = TransExpansionCost
+
+# Set upper bound on size of expansion:
+exp_bound_multiple = dtr.settings[:exp_bound_multiple]
+TransferCapacity = dtr.parameters[:TransferCapacity]
+ExpansionLimit_Tx = Dict()
+
+for (from,to) in dtr.sets[:Arcs]
+      # TransferCapacity[(from,to)] |> display
+      ExpansionLimit_Tx[from,to] = exp_bound_multiple * TransferCapacity[(from,to)]
+end
+dtr.parameters[:ExpansionLimit_Tx] = ExpansionLimit_Tx
+
+# %% Calculate amortised costs
+Dieter.calc_inv_trans_exp!(dtr)
 
 # %% Construct demand load data
 # Format of columns: TimeIndex, DemandRegion, Load (value)
@@ -713,11 +761,9 @@ dfDict["load"] = @byrow! dfDict["load"] begin
                         :Load = ds_Dict[:DemandRegion]*:Load
                   end
 =#
-# %%
-
+# %% Read the load data
 parse_load!(dtr, dfDict["load_share"])
 # parse_load!(dtr, dfDict["load"])
-
 
 # %% Inertia -  data and constraints
 
@@ -776,7 +822,8 @@ dtr.parameters[:RequireRatio] = RequireRatio
 
 
 # %% Construct availability traces
-# Format of columns: TimeIndex, RenewRegionID, TechTypeID, Availability
+# Format of columns:
+#   TimeIndex (Int64), RenewRegionID (String), TechTypeID (String), Availability (Float64)
 # e.g. fileDict["avail"] = joinpath(datapath,"base","availability.csv")
 # dfDict["avail"] = parse_file(fileDict["avail"]; dataname=dataname)
 
@@ -857,35 +904,13 @@ dtr.sets[:Nodes_NonDispatch] = intersect(dtr.sets[:Nodes_NonDispatch],dtr.sets[:
 
 # %% Calculated base parameters
 calc_base_parameters!(dtr)
-
 # %% Extensions
-
 parse_extensions!(dtr,dataname=sql_db_path)
-
-
-# # Hydrogen - code for testing sub-functions
-# fileDict["h2_technologies"] = joinpath(datapath,"h2","h2_technologies.sql")
-# dfDict["h2_technologies"] = parse_file(fileDict["h2_technologies"]; dataname=dataname)
-#
-# Dieter.parse_h2_technologies!(dtr, dfDict["h2_technologies"])
-#
-# rel_node_h2tech = create_relation(dfDict["h2_technologies"],:Region,:H2Technologies,:Efficiency)
-# Nodes = dtr.sets[:Nodes]
-# H2Technologies = dtr.sets[:H2Technologies]
-# dtr.sets[:Nodes_H2Tech] = Dieter.tuple2_filter(rel_node_h2tech, Nodes, H2Technologies)
-# Dieter.calc_inv_gas!(dtr)
-#
-# temp_h2_set = dtr.settings[:h2]
-# dtr.settings[:h2] = missing
-# Dieter.parse_extensions!(dtr,dataname=sql_db_path)
-# dtr.settings[:h2] = temp_h2_set
-
 # %% Initialise model
 
-# Construct an optimizer factory
-# solver = JuMP.with_optimizer(Clp.Optimizer)
-# solver = JuMP.with_optimizer(Gurobi.Optimizer)
-# solver = JuMP.with_optimizer(CPLEX.Optimizer)
+# # Construct an optimizer factory
+# solver = Clp.Optimizer
+# solver = Gurobi.Optimizer
 solver = CPLEX.Optimizer
 # build_model!(dtr,solver; timestep=-1)
 build_model!(dtr,solver,timestep=timestep)
@@ -908,7 +933,7 @@ for (n,sto) in dtr.sets[:Nodes_Storages]
 end
 
 
-NoExpansionREZones = keys(filter(x -> ismissing(x[2]), dtr.parameters[:TransExpansionCost]))
+NoExpansionREZones = keys(filter(x -> ismissing(x[2]), dtr.parameters[:REZoneExpansionCost]))
 if isempty(NoExpansionREZones)
       @info "No REZ expansions fixed to 0."
 else

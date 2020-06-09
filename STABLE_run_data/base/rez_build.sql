@@ -5,6 +5,6 @@ WindLimitOffshore,
 SolarLimit,
 TotalBuildCap,
 ExpansionLimit,
-TransExpansionCostMW AS TransExpansionCost
--- ConnectCostMW AS ConnectCost
+TransExpansionCost*1000 AS REZoneExpansionCost -- conversion from $/kW to $/MW
+-- ConnectCost  -- given in $/kW
 FROM REZ_Build

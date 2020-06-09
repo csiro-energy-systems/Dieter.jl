@@ -366,3 +366,5 @@ dkeymatch(d::Dict,s::Regex) = filter(x -> (!ismissing(x.second) && occursin(s,x.
 dkeymatch(d::Dict,s::Regex,pos::Int) = filter(x -> (!ismissing(x.second) && occursin(s,x.first[pos])),d)
 # Filter a Dictionary for a matching string in the value.
 dvalmatch(d::Dict,s::Regex) = filter(x -> (!ismissing(x.second) && occursin(s,x.second)),d)
+
+sortbyvals(d::Dict) = sort(d,byvalue=true,rev=true)
