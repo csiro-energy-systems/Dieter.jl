@@ -27,6 +27,8 @@ XLSX.openxlsx(xlsx_output_file, mode="w") do xf
         XLSX.writetable!(xf["CAPACITY_GEN"], prepare_df_xlsx(resSplit[:CAPACITY_GEN])...)
     XLSX.addsheet!(xf,"CAPACITY_STO")
         XLSX.writetable!(xf["CAPACITY_STO"], prepare_df_xlsx(resSplit[:CAPACITY_STO])...)
+    XLSX.addsheet!(xf,"CAPACITY_IC_EXP")
+        XLSX.writetable!(xf["CAPACITY_IC_EXP"], prepare_df_xlsx(resSplit[:CAPACITY_IC_EXP])...)
     XLSX.addsheet!(xf,"CAPACITY_REZ_EXP")
         XLSX.writetable!(xf["CAPACITY_REZ_EXP"], prepare_df_xlsx(resSplit[:CAPACITY_REZ_EXP])...)
     XLSX.addsheet!(xf,"CAPACITY_SYNC")

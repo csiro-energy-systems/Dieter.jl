@@ -1,8 +1,6 @@
 # This file: Produce summaries of various aspects of the results:
 
 import XLSX
-using OrderedCollections
-import OrderedCollections: OrderedDict
 
 # cf. write.jl
 # We annotate with the label "Grouped" after summarising the results into technology groupings:
@@ -11,7 +9,7 @@ xlsx_output_file = joinpath(resultsdir,"STABLE_summary-Grouped-$(scenario_timest
 
 # Utility functions:
 
-prepare_df_xlsx(df) = ( collect(DataFrames.eachcol(df)), DataFrames.names(df) )
+prepare_df_xlsx(df) = ( collect(DataFrames.eachcol(df)), DataFrames.propertynames(df) )
 
 
 # "This has the obvious caveat that the input Dict needs to be one-to-one."
@@ -118,7 +116,10 @@ function create_output_frame(tech_group_dict, df_input,
                     end
                 end
 
-    df_sum = by(df, [column_dimension, :TechGroup], values_col => sum)
+    df_sum = combine(values_col => sum, groupby(df, [column_dimension, :TechGroup]))
+#     df_sum = by(df, [column_dimension, :TechGroup], values_col => sum)
+# `by(d::AbstractDataFrame, cols::Any, f::Pair{<:ColumnIndex}; sort::Bool=false, skipmissing::Bool=false)` is deprecated,
+# use `combine(f, groupby(d, cols, sort=sort, skipmissing=skipmissing))` instead.
 
     values_rename = Symbol(String(values_col)*"_sum")
 
@@ -213,7 +214,7 @@ df_var_days = @byrow! df_var begin
                 @newcol Day::Array{Int64}
                 :Day = div(:Hours-1,48/timestep) + 1
             end
-df_var_sum = by(df_var_days, [:DemandRegion, :Day], :AvailCap => sum)
+df_var_sum = combine(:AvailCap => sum, groupby(df_var_days, [:DemandRegion, :Day])
 df_var_sum_pivot = unstack(df_var_sum, :Day, :DemandRegion, :AvailCap_sum)
 
 x_days = Dict{Symbol,Dict{String,Int64}}()
@@ -243,7 +244,7 @@ for DemReg in DR_Symbols
     # day_type = "max_day"
 
     df_dr = select(df_var_sum_pivot, [:Day, DemReg])
-    # names(df_dr) |> display
+    # propertynames(df_dr) |> display
     sort!(df_dr, DemReg)
     x_days[DemReg] = Dict{String,Int64}()
     x_days[DemReg]["min_day"] = df_dr[!,:Day][1]
@@ -261,7 +262,7 @@ for DemReg in DR_Symbols
             where(:DemandRegion .== String(DemReg)) |>
             where(in.(:Day,[make_window(x_days[DemReg][day_type],window_size)]))
 
-        df_x_rez = select(df_x_days[DemReg][day_type],names(df_txz_gen))
+        df_x_rez = select(df_x_days[DemReg][day_type],propertynames(df_txz_gen))
 
         hours_list = sort(unique(df_x_rez[!,:Hours]))
 
@@ -301,7 +302,7 @@ for DemReg in DR_Symbols
         df_x_final = join(df_x_pivot, df_s, on=[:Hours])
 
         for tech in summary_tech
-            if !(tech in names(df_x_final))
+            if !(tech in propertynames(df_x_final))
                 insertcols!(df_x_final, ncol(df_x_final)+1, tech => zeros(size(df_x_final)[1]))
             end
         end

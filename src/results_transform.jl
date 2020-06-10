@@ -80,6 +80,7 @@ resultsSplitIndex = [
     :N_RES_EXP => [],
     :N_SYNC => [],
     :FLOW => [:Arcs,[:From,:To],[:Hours,:Value]],
+    :N_IC_EXP => [:Arcs,[:From,:To],[:Value]],
     :H2_P2G => [:Nodes_P2G, [:Nodes, :Technologies],[:Hours,:Value]],
     :H2_G2P => [:Nodes_G2P, [:Nodes, :Technologies],[:Hours,:Value]],
     :H2_GS_L => [:Nodes_GasStorages, [:Nodes, :Technologies],[:Hours,:Value]],
@@ -108,6 +109,7 @@ sortIndex = Dict(
     :N_RES_EXP => [:REZones],
     :N_SYNC => [:DemandRegion],
     :FLOW => [:From,:To],
+    :N_IC_EXP => [:From, :To],
     :H2_P2G => std_sort_hours,
     :H2_G2P => std_sort_hours,
     :H2_GS_L => std_sort_hours,
@@ -149,8 +151,21 @@ TxZones = dtr.sets[:TxZones]
 # %% Technology capacity
 resSplit[:CAPACITY_REZ_EXP] = resSplit[:N_RES_EXP]
 
+ExpansionLimit = dtr.parameters[:ExpansionLimit]
+resSplit[:CAPACITY_REZ_EXP] = @byrow! resSplit[:CAPACITY_REZ_EXP] begin
+            @newcol ExpUpperBound::Array{Float64}
+            :ExpUpperBound = ExpansionLimit[:REZones]
+        end
+
+ExpansionLimit_Tx = dtr.parameters[:ExpansionLimit_Tx]
+resSplit[:CAPACITY_IC_EXP] = resSplit[:N_IC_EXP]
+resSplit[:CAPACITY_IC_EXP] = @byrow! resSplit[:CAPACITY_IC_EXP] begin
+            @newcol ExpUpperBound::Array{Float64}
+            :ExpUpperBound = ExpansionLimit_Tx[:From,:To]
+        end
+
 df_N_STO_Include = @where(resSplit[:N_STO_P],:N_STO_P .> 1e-3)
-resSplit[:CAPACITY_STO] = join(df_N_STO_Include,resSplit[:N_STO_E], on =[:Nodes, :Technologies])
+resSplit[:CAPACITY_STO] = innerjoin(df_N_STO_Include,resSplit[:N_STO_E], on =[:Nodes, :Technologies])
 
 df_N_TECH_Include = @where(resSplit[:N_TECH],:N_TECH .> 1e-3)
 resSplit[:CAPACITY_GEN] = df_N_TECH_Include
@@ -180,8 +195,8 @@ resSplit[:TxZ_GEN] = @where(resSplit[:G], rel_node_tech_txz.(:Nodes,:Technologie
 # resSplit[:G_UP] = @where(resSplit[:G_UP], rel_node_tech_built.(:Nodes,:Technologies) .== true)
 # resSplit[:G_DO] = @where(resSplit[:G_DO], rel_node_tech_built.(:Nodes,:Technologies) .== true)
 # # Joins
-# tmp1 = join(resSplit[:G_UP],resSplit[:G_DO], on =[:Nodes, :Technologies,:Hours])
-# resSplit[:DISPATCH] = join(resSplit[:G], tmp1, on =[:Nodes, :Technologies,:Hours])
+# tmp1 = innerjoin(resSplit[:G_UP],resSplit[:G_DO], on =[:Nodes, :Technologies,:Hours])
+# resSplit[:DISPATCH] = innerjoin(resSplit[:G], tmp1, on =[:Nodes, :Technologies,:Hours])
 
 # %% Generation by renewables:
 
@@ -189,7 +204,7 @@ resSplit[:TxZ_GEN] = @where(resSplit[:G], rel_node_tech_txz.(:Nodes,:Technologie
 resSplit[:REZ_GEN] = @where(resSplit[:G], rel_node_tech_rez.(:Nodes,:Technologies) .== true)
 resSplit[:CU_GEN] = @where(resSplit[:CU], rel_node_tech_rez.(:Nodes,:Technologies) .== true)
 
-resSplit[:REZ_GEN_CU] = join(resSplit[:REZ_GEN], resSplit[:CU_GEN], on=[:Nodes, :Technologies,:Hours], kind = :left)
+resSplit[:REZ_GEN_CU] = leftjoin(resSplit[:REZ_GEN], resSplit[:CU_GEN], on=[:Nodes, :Technologies,:Hours])
 
 # resSplit[:REZ_GEN_CU] = @byrow! resSplit[:REZ_GEN_CU] if ismissing(:CU); :CU = 0 end
 resSplit[:REZ_GEN_CU] = @byrow! resSplit[:REZ_GEN_CU] begin
@@ -212,8 +227,8 @@ resSplit[:STO_L] = @where(resSplit[:STO_L], rel_node_sto_built.(:Nodes,:Technolo
 resSplit[:STO_IN] = @where(resSplit[:STO_IN], rel_node_sto_built.(:Nodes,:Technologies) .== true)
 resSplit[:STO_OUT] = @where(resSplit[:STO_OUT], rel_node_sto_built.(:Nodes,:Technologies) .== true)
 # Joins
-tmp2 = join(resSplit[:STO_IN],resSplit[:STO_OUT], on =[:Nodes, :Technologies,:Hours])
-resSplit[:STORAGE] = join(resSplit[:STO_L], tmp2, on =[:Nodes, :Technologies,:Hours])
+tmp2 = innerjoin(resSplit[:STO_IN],resSplit[:STO_OUT], on =[:Nodes, :Technologies,:Hours])
+resSplit[:STORAGE] = innerjoin(resSplit[:STO_L], tmp2, on =[:Nodes, :Technologies,:Hours])
 
 # %% Hydrogen:
 if !ismissing(dtr.settings[:h2])
@@ -253,7 +268,6 @@ DemandRegion_augmentIndex = Dict(
   :CAPACITY_STO => :Nodes,
   :CAPACITY_REZ_EXP => :REZones,
   :CAPACITY_H2 => :Nodes
-  # :FLOW => :From
 )
 
 # Potential - annotate REZones with corresponding Transmission Zone
@@ -313,3 +327,8 @@ resSplit[:FLOW] = select(df_flow,[L-1,L,1:(L-2)...])
 
 # Construct inter-state / inter-region flow DataFrame:
 resSplit[:INTERFLOW] = @where(resSplit[:FLOW], :FromRegion .!== :ToRegion)
+
+DemandRegion_map!(resSplit[:N_IC_EXP], :From, :FromRegion)
+DemandRegion_map!(resSplit[:N_IC_EXP], :To, :ToRegion)
+L = ncol(resSplit[:N_IC_EXP])
+resSplit[:N_IC_EXP] = select(resSplit[:N_IC_EXP],[L-1,L,1:(L-2)...])

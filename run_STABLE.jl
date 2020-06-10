@@ -21,6 +21,9 @@ import Serialization
 # using Tables
 # import XLSX
 
+import OrderedCollections: OrderedDict
+sortbyvals(d::Dict) = sort!(OrderedDict(d),byvalue=true,rev=true)
+
 # %% Mappings from Scenario designations to parameters
 Scenario_Number_Dict = Dict(
       "Scen1_BAU" => 1,  # Current Trends
