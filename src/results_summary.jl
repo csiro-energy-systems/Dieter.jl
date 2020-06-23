@@ -214,7 +214,7 @@ df_var_days = @byrow! df_var begin
                 @newcol Day::Array{Int64}
                 :Day = div(:Hours-1,48/timestep) + 1
             end
-df_var_sum = combine(:AvailCap => sum, groupby(df_var_days, [:DemandRegion, :Day])
+df_var_sum = combine(:AvailCap => sum, groupby(df_var_days, [:DemandRegion, :Day]))
 df_var_sum_pivot = unstack(df_var_sum, :Day, :DemandRegion, :AvailCap_sum)
 
 x_days = Dict{Symbol,Dict{String,Int64}}()
@@ -299,7 +299,7 @@ for DemReg in DR_Symbols
 
         df_s = create_output_frame(techGroups, df_sto_dr, :STO_NET, :Hours, transpose_flag=true)
 
-        df_x_final = join(df_x_pivot, df_s, on=[:Hours])
+        df_x_final = innerjoin(df_x_pivot, df_s, on=[:Hours])
 
         for tech in summary_tech
             if !(tech in propertynames(df_x_final))

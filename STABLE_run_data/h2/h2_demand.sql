@@ -1,0 +1,12 @@
+SELECT
+    ScenarioName,
+    ScenarioNumber,
+    DemandRegion,
+    sum(FYE2015) AS FYE2015, sum(FYE2016) AS FYE2016, sum(FYE2017) AS FYE2017, sum(FYE2018) AS FYE2018, sum(FYE2019) AS FYE2019,
+sum(FYE2020) AS FYE2020, sum(FYE2025) AS FYE2025, sum(FYE2030) AS FYE2030, sum(FYE2035) AS FYE2035, sum(FYE2040) AS FYE2040,
+sum(FYE2045) AS FYE2045, sum(FYE2050) AS FYE2050, sum(FYE2055) AS FYE2055, sum(FYE2060) AS FYE2060
+FROM H2_Demand
+GROUP BY
+    ScenarioName,
+    ScenarioNumber,
+    DemandRegion

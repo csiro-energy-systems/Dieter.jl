@@ -20,6 +20,10 @@ CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Gen-REZ.csv"),resSplit[:REZ
 CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Storage.csv"),resSplit[:STORAGE])
 CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Flow.csv"),resSplit[:FLOW])
 
+CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-REZ_Split_2050.csv"), 
+    unstack(
+        combine(:G => sum, groupby(resSplit[:REZ_GEN_CU],[:Technologies,:Nodes])),
+     :Nodes, :Technologies, :G_sum))
 
 # Write capacity data and create place-holders for larger datasets:
 XLSX.openxlsx(xlsx_output_file, mode="w") do xf

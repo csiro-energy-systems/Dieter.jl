@@ -31,8 +31,6 @@ function build_model!(dtr::DieterModel,
 
     cost_scaling = dtr.settings[:cost_scaling]
 
-    H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
-
     # Set definitions
 
     Technologies = dtr.sets[:Technologies]  # Generation technologies
@@ -115,6 +113,9 @@ function build_model!(dtr::DieterModel,
 
     # Parameter definitions
     H2Conversion = dtr.parameters[:H2Conversion]  # Units: MWh / tonne-H2
+    # H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
+    H2Demand = dtr.parameters[:H2Demand] # Units: tonne-H2 / year
+
 
     EvDemand = dtr.parameters[:AbsoluteEvDemand]
     EvPower = dtr.parameters[:AbsoluteEvPower]
@@ -248,12 +249,12 @@ function build_model!(dtr::DieterModel,
             #
             H2_P2G[Nodes_P2G, Hours], (base_name=shorter["H2_power_to_gas"], lower_bound=0) # Units: MWh per time-interval; Power-to-gas energy conversion
             H2_G2P[Nodes_G2P, Hours], (base_name=shorter["H2_gas_to_power"], lower_bound=0) # Units: MWh per time-interval; Gas-to-power energy conversion
-            H2_GS_L[Nodes_GasStorages, Hours], (base_name=shorter["H2_storage_level"], lower_bound=0) # Units: tonnes-H2 at a given time-interval; Current gas storage level
-            H2_GS_IN[Nodes_GasStorages, Hours], (base_name=shorter["H2_storage_inflow"], lower_bound=0) # Units: tonnes-H2 at a given time-interval; Current gas storage input
-            H2_GS_OUT[Nodes_GasStorages, Hours], (base_name=shorter["H2_storage_outflow"], lower_bound=0) # Units: tonnes-H2 at a given time-interval; Current gas storage output
+            H2_GS_L[Nodes_GasStorages, Hours], (base_name=shorter["H2_storage_level"], lower_bound=0) # Units: tonne-H2 at a given time-interval; Current gas storage level
+            H2_GS_IN[Nodes_GasStorages, Hours], (base_name=shorter["H2_storage_inflow"], lower_bound=0) # Units: tonne-H2 at a given time-interval; Current gas storage input
+            H2_GS_OUT[Nodes_GasStorages, Hours], (base_name=shorter["H2_storage_outflow"], lower_bound=0) # Units: tonne-H2 at a given time-interval; Current gas storage output
             N_P2G[Nodes_P2G], (base_name=shorter["H2_P2G_capacity"], lower_bound=0) # Units: MW; Power-to-gas capacity
             N_G2P[Nodes_G2P], (base_name=shorter["H2_G2P_capacity"], lower_bound=0) # Units: MW; Gas-to-power capacity
-            N_GS[Nodes_GasStorages], (base_name=shorter["H2_storage_capacity"], lower_bound=0) # Units; tonnes-H2 ; Gas storage (energy) capacity
+            N_GS[Nodes_GasStorages], (base_name=shorter["H2_storage_capacity"], lower_bound=0) # Units; tonne-H2 ; Gas storage (energy) capacity
             #
             HEAT_STO_L[BU,HP,Hours], (base_name=shorter["Heat_storage_level"], lower_bound=0) # Units: MWh at a given time-interval; Heating: storage level
             HEAT_HP_IN[BU,HP, Hours], (base_name=shorter["Heat_heat_pump_"], lower_bound=0)   # Units: MWh per time-interval; Heating: electricity demand from heat pump
@@ -388,7 +389,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     @constraint(m, FlowExpandUpperBound[(from,to)=Arcs],
-        N_IC_EXP[(from,to)] <= ExpansionLimit_Tx[(from,to)] 
+        N_IC_EXP[(from,to)] <= ExpansionLimit_Tx[(from,to)]
     );
 
     @info "Energy flow expansion symmetry."
@@ -678,6 +679,11 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 # %% * ----------------------------------------------------------------------- *
 #    ***** Hydrogen constraints *****
 #    * ----------------------------------------------------------------------- *
+
+    @info "Hydrogen: Minimum yearly lower bound on power-to-gas."
+    @constraint(m, MinYearlyP2G[(n,p2g)=Nodes_P2G],
+        sum(H2_P2G[(n,p2g),h]/H2Conversion[n,p2g] for h in Hours) >= H2Demand[n,p2g]
+    );
 
     @info "Hydrogen: Variable upper bound on power-to-gas."
     @constraint(m, MaxP2G[(n,p2g)=Nodes_P2G,h=Hours],

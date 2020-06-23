@@ -4,7 +4,7 @@
 using Dieter
 import Dieter: parse_file, parse_nodes!, parse_base_technologies!, parse_storages!, parse_load!, parse_availibility!
 import Dieter: initialise_set_relation_data!, parse_set_relations!,parse_arcs!, calc_base_parameters!, parse_extensions!
-import Dieter: dvalmatch, dkeymatch, sortbyvals, split_df_tuple
+import Dieter: dvalmatch, dkeymatch, split_df_tuple
 
 using JuMP
 # import MathOptInterface
@@ -24,40 +24,16 @@ import Serialization
 import OrderedCollections: OrderedDict
 sortbyvals(d::Dict) = sort!(OrderedDict(d),byvalue=true,rev=true)
 
-# %% Mappings from Scenario designations to parameters
-Scenario_Number_Dict = Dict(
-      "Scen1_BAU" => 1,  # Current Trends
-      "Scen2_DDC" => 2,  # Deep Decarbonisation
-      "Scen3_PRP" => 3,  # Prosumer Power
-      "Scen4_DID" => 4,  # De-Industrialisation Death Spiral
-      "Scen5_MAG" => 5,  # Make Australia Great Again
-      "Scen6_NGA" => 6,  # NSW Goes It Alone
-      "Scen7_DCU" => 7,  # The DC Universe
-      "Scen8_LCE" => 8   # Australia's Low Cost Energy Advantage
-)
+include("scenario/TG_scenarios.jl")
 
-Scen_ISP_Map = Dict("Scen1_BAU" => "Central", "Scen2_DDC" => "HighVRE")
 
-Scen_FuelCost_Map = Dict("Scen1_BAU" => "Neutral", "Scen2_DDC" => "Fast")
-
-Scenario_BattVPP_Dict = Dict(
-      "Scen1_BAU" => 2,  # Current Trends
-      "Scen2_DDC" => 3,  # Deep Decarbonisation
-      "Scen3_PRP" => 4,  # Prosumer Power
-      "Scen4_DID" => 1,  # De-Industrialisation Death Spiral
-      "Scen5_MAG" => 1,  # Make Australia Great Again
-      "Scen6_NGA" => 3,  # NSW Goes It Alone
-      "Scen7_DCU" => 2,  # The DC Universe
-      "Scen8_LCE" => 3   # Australia's Low Cost Energy Advantage
-)
-
-Scen_h2_setting = Dict("Scen1_BAU" => missing, "Scen2_DDC" => 0)
 # %% Scenario Settings (to customise by modeller)
 
 run_timestamp = "$(Dates.Date(Dates.now()))-H$(Dates.hour(Dates.now()))"
 
 ScenarioName = "Scen1_BAU"
 # ScenarioName = "Scen2_DDC"
+@assert ScenarioName in Allowed_Scenarios
 
 # Specfied Year for the scenario setting:
 # ScenarioYear = 2030
@@ -73,21 +49,11 @@ FixExistingCapFlag = true
 NoNewGas = false
 NoNewDistillate = false
 
+TxCost_Scaling = Scenario_TxCost_Scaling_Dict[ScenarioName]
+
 Note = "Testing"
 
 scen_settings = Dict{Symbol,Any}()
-
-scen_types = Dict{Symbol, String}()
-BattEnergyType = "N_BattEnergy"
-HydPumpEnergyType = "N_HydPumpEnergy"
-
-H2ElectrolyserType = "N_Electrolyser"
-H2RecipEngType = "N_RecipH2"
-
-scen_types[:BattEnergyType] = BattEnergyType
-scen_types[:HydPumpEnergyType] = HydPumpEnergyType
-scen_types[:H2ElectrolyserType] = H2ElectrolyserType
-scen_types[:H2RecipEngType] = H2RecipEngType
 
 scen_settings[:scen_types] = scen_types
 
@@ -112,7 +78,7 @@ scen_settings[:cost_scaling] = 1 # 1.0e-6
 scen_settings[:min_res] = 10
 scen_settings[:ev] = missing
 scen_settings[:heat] = missing
-scen_settings[:h2] = Scen_h2_setting[ScenarioName]  # missing -> H2 not included, any number -> H2 included
+scen_settings[:h2] = Scenario_H2_Map[ScenarioName]  # `missing` means H2 not included, any number means H2 included
 
 # Lifetime for amortised transmission expansion investment
 scen_settings[:lifetime_Tx] = 40
@@ -337,20 +303,37 @@ params_costES = Dieter.map_idcol(df_costES, [:Technologies], skip_cols=Symbol[:S
 for (k,v) in params_costES Dieter.update_dict!(dtr.parameters, k, v) end
 
 # # Hydrogen technologies:
-fileDict["cost_h2"] = joinpath(datapath,"h2","cost_h2.sql")
-dfDict["cost_h2"] = parse_file(fileDict["cost_h2"]; dataname=dataname)
+fileDict["h2_cost"] = joinpath(datapath,"h2","h2_cost.sql")
+dfDict["h2_cost"] = parse_file(fileDict["h2_cost"]; dataname=dataname)
 
-df_cost_h2 = DataFrames.rename!(
-      dfDict["cost_h2"][!,[:Technologies, :Scenario, ScYr_Sym]],
+df_h2_cost = DataFrames.rename!(
+      dfDict["h2_cost"][!,[:Technologies, :Scenario, ScYr_Sym]],
       Dict(ScYr_Sym => :ScenCostPower)
       )
 # Filter by the current Scenario:
-df_cost_h2 = @linq df_cost_h2 |> where(:Scenario .== Scen_ISP_Map[ScenarioName])
+df_h2_cost = @linq df_h2_cost |> where(:Scenario .== Scen_ISP_Map[ScenarioName])
 # Read into model parameters:
-params_cost_h2 = Dieter.map_idcol(df_cost_h2, [:Technologies], skip_cols=Symbol[:Scenario])
-for (k,v) in params_cost_h2 Dieter.update_dict!(dtr.parameters, k, v) end
+params_h2_cost = Dieter.map_idcol(df_h2_cost, [:Technologies], skip_cols=Symbol[:Scenario])
+for (k,v) in params_h2_cost Dieter.update_dict!(dtr.parameters, k, v) end
 
 # The above should create parameters in dtr.parameters[:ScenCostPower] for H2 tech.
+
+# # Read in the H2 Demand for each Demand Region, default assumed units on input are in PJ.
+# Conversion from PJ to tonne-H2 required
+tonne_H2_per_PJ = 7.05 # = 1/0.14186
+
+fileDict["h2_demand"] = joinpath(datapath,"h2","h2_demand.sql")
+dfDict["h2_demand"] = parse_file(fileDict["h2_demand"]; dataname=dataname)
+
+df_h2_demand = @linq dfDict["h2_demand"] |> where(:ScenarioName .== ScenarioName)
+# select(df_h2_demand,:DemandRegion, ScYr_Sym => :H2_Demand)
+dict_h2_demand = Dict(eachrow(select(df_h2_demand,:DemandRegion, ScYr_Sym => :H2_Demand)))
+
+# Scale values of H2 Demand in PJ to a value in tonne-H2.
+dict_h2_demand_tonne = Dict([(k,tonne_H2_per_PJ*v) for (k,v) in dict_h2_demand])
+
+# We split the Demand Region H2 demand into DemandZones below, after parse_extensions!(..)
+
 # %% Synchronous condensers
 # Synchronous condenser with flywheel - cost in $ per inertial units of `MWs`
 
@@ -447,7 +430,7 @@ dfDict["carbon_param"] = parse_file(fileDict["carbon_param"]; dataname=dataname)
 Scen_co2 = @where(dfDict["carbon_param"], :ScenarioName .== ScenarioName, :ScenarioYear .== ScenarioYear)
 # Scen_co2[!, :CarbonPrice][1]
 dtr.settings[:co2] = Scen_co2[!,:CarbonPrice][1]  # Units in $/t-CO2
-Mt_To_t = 1000 #  convert Mega-tonnes to tonnes
+Mt_To_t = 1000 #  convert Mega-tonne to tonne
 dtr.settings[:carbon_budget] = Mt_To_t*Scen_co2[!,:CarbonBudget][1]  # Data units in Mt-CO2, convert to t-CO2
 
 # Add a Carbon Content column with zero values
@@ -615,15 +598,17 @@ TransferCapacityTxZ = copy(dtr.parameters[:TransferCapacity]) # Units: MW; Inter
 #      Merge to have all transfer capacities (TxZones and REZones) together
 merge!(dtr.parameters[:TransferCapacity],TransferCapacityREZ)
 
-# Transmission expansion costs:
-
-TxZoneExpansionCost = dtr.parameters[:TxZoneExpansionCost] # Units: currency/MW; Interconnector power transfer expansion cost
+# Transmission expansion costs (scaling applied to the values if different to 1):
+TxZoneExpansionCost = Dict(
+              [(k,TxCost_Scaling*v) for (k,v) in dtr.parameters[:TxZoneExpansionCost]]
+                      ) # Units: currency/MW; Interconnector power transfer expansion cost
 
 # REZone expansion cost (read from table `REZ_Build`)
 REZoneExpansionCost = dtr.parameters[:REZoneExpansionCost]
 # Filter missing values
 # REZoneExpansionCost = filter(x -> !ismissing(x[2]), dtr.parameters[:TransExpansionCost])
 
+# TransExpansionCost is intended to contain costs in both TxZones and REZones:
 TransExpansionCost = Dict((rez,txz) => REZoneExpansionCost[rez]
                         for (rez,txz) in dtr.sets[:Nodes_Promotes] if rez in REZones)
 
@@ -909,6 +894,38 @@ dtr.sets[:Nodes_NonDispatch] = intersect(dtr.sets[:Nodes_NonDispatch],dtr.sets[:
 calc_base_parameters!(dtr)
 # %% Extensions
 parse_extensions!(dtr,dataname=sql_db_path)
+
+# H2 Modelling Setup.
+# If dtr.settings[:h2] == 0 then we just model an aggregate yearly H2 demand via Electrolysers.
+# Hence, we set Gas Storage and Gas-to-Power sets to null:
+if dtr.settings[:h2] == 0
+      dtr.sets[:Nodes_GasStorages] = Array{String,1}[]
+      @info "No H2 Storage aspect present in model."
+      dtr.sets[:Nodes_G2P] = Array{String,1}[]
+      @info "No H2 Gas-to-Power aspect present in model."
+end
+
+h2_demand_split = dfDict["demand_split"]
+# We can use the same allocation of H2 Demand to Zones as the electricity demand split...
+# ... or we can use an equal share split between the Demand Zones in each Demand Region.
+# List of Demand Regions used _with_ multiplicity:
+col_DemandRegions = dfDict["demand_split"][:,:DemandRegion]
+# Do the split equally by count om each Demand Region:
+h2_demand_split = @byrow! h2_demand_split begin
+      :DemandShare = 1/count(i -> i .== :DemandRegion, col_DemandRegions)
+end
+
+H2Demand = Dict{Tuple{String,String},Float64}()
+for dr in DemandRegions, (n,p2g) in dtr.sets[:Nodes_P2G]
+      if node2DemReg[n] == dr
+            H2_share = @where(h2_demand_split,:DemandZone .== n)[1,:DemandShare]
+            display(H2_share)
+            H2Demand[n,p2g] = H2_share*dict_h2_demand_tonne[dr]
+      end
+end
+
+dtr.parameters[:H2Demand] = H2Demand
+
 # %% Initialise model
 
 # # Construct an optimizer factory
