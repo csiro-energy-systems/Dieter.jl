@@ -240,20 +240,29 @@ if !ismissing(dtr.settings[:h2])
     df_p2g = rename(df_p2g, Dict(:N_P2G => :Capacity))
 
     # H2 Gas-to-power
-    df_g2p = @byrow! resSplit[:N_G2P] begin
-                @newcol TechType::Array{String}
-                :TechType = "G2P"
-            end
-    df_g2p = rename(df_g2p, Dict(:N_G2P => :Capacity))
+    if :N_G2P in keys(resSplit)
+        df_g2p = @byrow! resSplit[:N_G2P] begin
+                    @newcol TechType::Array{String}
+                    :TechType = "G2P"
+                end
+        df_g2p = rename(df_g2p, Dict(:N_G2P => :Capacity))
+    end
 
     # H2 gas storage
-    df_gs = @byrow! resSplit[:N_GS] begin
-                @newcol TechType::Array{String}
-                :TechType = "GS"
-            end
-    df_gs = rename(df_gs, Dict(:N_GS => :Capacity))
+    if :N_GS in keys(resSplit)
+        df_gs = @byrow! resSplit[:N_GS] begin
+                    @newcol TechType::Array{String}
+                    :TechType = "GS"
+                end
+        df_gs = rename(df_gs, Dict(:N_GS => :Capacity))
+    end
 
-    df_h2 = vcat(df_p2g, df_g2p, df_gs)
+    if dtr.settings[:h2] > 0
+        df_h2 = vcat(df_p2g, df_g2p, df_gs)
+    else
+        df_h2 = df_p2g
+    end
+    
     resSplit[:CAPACITY_H2] = select(df_h2, [:TechType, :Nodes, :Technologies, :Capacity])
 end
 

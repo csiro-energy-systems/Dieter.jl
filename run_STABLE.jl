@@ -29,15 +29,15 @@ include("scenario/TG_scenarios.jl")
 
 # %% Scenario Settings (to customise by modeller)
 
-run_timestamp = "$(Dates.Date(Dates.now()))-H$(Dates.hour(Dates.now()))"
+Note = "Testing"
 
 ScenarioName = "Scen1_BAU"
 # ScenarioName = "Scen2_DDC"
 @assert ScenarioName in Allowed_Scenarios
 
 # Specfied Year for the scenario setting:
-# ScenarioYear = 2030
-ScenarioYear = 2050
+ScenarioYear = 2030
+# ScenarioYear = 2050
 
 ScYr_Sym = Symbol("FYE$ScenarioYear")  # Scenario year symbol
 ScenarioNumber = Scenario_Number_Dict[ScenarioName]
@@ -51,8 +51,6 @@ NoNewDistillate = false
 
 TxCost_Scaling = Scenario_TxCost_Scaling_Dict[ScenarioName]
 
-Note = "Testing"
-
 scen_settings = Dict{Symbol,Any}()
 
 scen_settings[:scen_types] = scen_types
@@ -61,6 +59,8 @@ scen_settings[:scen_types] = scen_types
 WeatherYear = 2019 # e.g if 2019, this is Financial year 2018-2019
 ReferenceYear = WeatherYear # Year of data set to use for renewable traces
 TraceYear = 2030 # Which year to use from the ReferenceYear trace dataset
+
+run_timestamp = "$(Dates.Date(Dates.now()))-H$(Dates.hour(Dates.now()))"
 
 scen_settings[:weather_year] = WeatherYear
 scen_settings[:trace_year] = TraceYear
@@ -82,6 +82,7 @@ scen_settings[:h2] = Scenario_H2_Map[ScenarioName]  # `missing` means H2 not inc
 
 # Lifetime for amortised transmission expansion investment
 scen_settings[:lifetime_Tx] = 40
+scen_settings[:scaling_Tx] = TxCost_Scaling
 # Multiplier for setting upper bound on size of expansion:
 scen_settings[:exp_bound_multiple] = 10
 
@@ -318,9 +319,17 @@ for (k,v) in params_h2_cost Dieter.update_dict!(dtr.parameters, k, v) end
 
 # The above should create parameters in dtr.parameters[:ScenCostPower] for H2 tech.
 
-# # Read in the H2 Demand for each Demand Region, default assumed units on input are in PJ.
+# # Read in the H2 Demand for each Demand Region,
+# # TODO embed in scenario definitions: default assumed units on input are in PJ.
+# # If given directly in required electricity demand e.g. TWh, convert e.g.
+# H2_energy_direct = true
+# H2_energy_req_multiplier = 1e6  # TWh to MWh.
+# # else
+# H2_energy_direct = false
+
 # Conversion from PJ to tonne-H2 required
-tonne_H2_per_PJ = 7.05 # = 1/0.14186
+const tonne_H2_per_PJ = 7049.2 # = 1e6/141.86 tonne-H2/PJ, i.e. H2 energy density 141.86 MJ/kg (or GJ/tonne)
+H2_energy_to_mass = tonne_H2_per_PJ
 
 fileDict["h2_demand"] = joinpath(datapath,"h2","h2_demand.sql")
 dfDict["h2_demand"] = parse_file(fileDict["h2_demand"]; dataname=dataname)
@@ -820,19 +829,27 @@ dfDict["avail"] = DataFrame()
 # Read data to a `Dict`ionary that creates an assignment of trace names:
 sqlquery_rez_trace = DBInterface.execute(SQLite.DB(sql_db_path), "SELECT * FROM REZ_Trace_Map") #; stricttypes=false
 trace_corr = Dieter.SQLqueryToDict(sqlquery_rez_trace)
+# TODO Note that `trace_corr` is not used after this point...
 
-wind_traces_path = joinpath(trace_read_path,"REZ_Traces","REZ_Wind_Traces_RefYear$(ReferenceYear)_FYE$(TraceYear).csv")
-solar_traces_path = joinpath(trace_read_path,"REZ_Traces","REZ_Solar_Traces_RefYear$(ReferenceYear)_FYE$(TraceYear).csv")
+for tech_class in ["Wind", "Solar", "Tidal"]
+      dtr.data["files"][tech_class] = joinpath(trace_read_path,"REZ_Traces","REZ_$(tech_class)_Traces_RefYear$(ReferenceYear)_FYE$(TraceYear).csv")
+end
 
-dtr.data["files"]["Wind"] = wind_traces_path
-dtr.data["files"]["Solar"] = solar_traces_path
+# wind_traces_path = joinpath(trace_read_path,"REZ_Traces","REZ_Wind_Traces_RefYear$(ReferenceYear)_FYE$(TraceYear).csv")
+# solar_traces_path = joinpath(trace_read_path,"REZ_Traces","REZ_Solar_Traces_RefYear$(ReferenceYear)_FYE$(TraceYear).csv")
+# tidal_traces_path = joinpath(trace_read_path,"REZ_Traces","REZ_Tidal_Traces_RefYear$(ReferenceYear)_FYE$(TraceYear).csv")
+#
+# dtr.data["files"]["Wind"] = wind_traces_path
+# dtr.data["files"]["Solar"] = solar_traces_path
+# dtr.data["files"]["Tidal"] = tidal_traces_path
 
 tech_subset = Dict()
 tech_subset["Wind"]  = ["WindOn_Exi", "WindOn_New", "WindOff_New"]
 tech_subset["Solar"] = ["SolarPV_Exi", "SolarPV_New", "SolThermal_New"]
+tech_subset["Tidal"] = ["TidalConverter_New"]
 # alt.: ["SolFixedPV_Exi", "SolLargePV_Exi", "SolLargePV_New", "SolThermal_New"]
 
-for tech_class in ["Wind", "Solar"]
+for tech_class in ["Wind", "Solar","Tidal"]
       traces_path = dtr.data["files"][tech_class]
       # Read trace data:
       # df_traces = DataFrame(CSV.File(traces_path))
@@ -919,7 +936,6 @@ H2Demand = Dict{Tuple{String,String},Float64}()
 for dr in DemandRegions, (n,p2g) in dtr.sets[:Nodes_P2G]
       if node2DemReg[n] == dr
             H2_share = @where(h2_demand_split,:DemandZone .== n)[1,:DemandShare]
-            display(H2_share)
             H2Demand[n,p2g] = H2_share*dict_h2_demand_tonne[dr]
       end
 end
