@@ -1,6 +1,6 @@
 ## Running code and tests for Dieter.jl
 
-# %% Load packages
+## %% Load packages
 using Dieter
 import Dieter: parse_file, parse_nodes!, parse_base_technologies!, parse_storages!, parse_load!, parse_availibility!
 import Dieter: initialise_set_relation_data!, parse_set_relations!,parse_arcs!, calc_base_parameters!, parse_extensions!
@@ -27,7 +27,7 @@ sortbyvals(d::Dict) = sort!(OrderedDict(d),byvalue=true,rev=true)
 include("scenario/TG_scenarios.jl")
 
 
-# %% Scenario Settings (to customise by modeller)
+## %% Scenario Settings (to customise by modeller)
 
 Note = "Testing"
 
@@ -100,7 +100,7 @@ scen_settings[:coal_adjust] = 1;
 # CarbonBudgetDict by ScenarioName and ScenarioYear in millions of t-CO2 (Mt-CO2e)
 # scen_settings[:carbon_budget] = 1000*CarbonBudgetDict[ScenarioName,ScenarioYear]
 
-# %% Data paths and connections (to customise by modeller)
+## %% Data paths and connections (to customise by modeller)
 
 # projectpath = joinpath(ENV["HOME"],"Documents/Projects/ESM/Dieter.jl/")
 projectpath = pwd()
@@ -120,7 +120,7 @@ dataname=sql_db_path
 
 trace_read_path = joinpath(datapath_STABLE,"STABLE_input_traces")
 
-# %% Instantiate data model
+## %% Instantiate data model
 # # Initialise a basic file structure for accessing the model data:
 # Dieter.initialise_data_dir_structure(datapath)
 
@@ -141,7 +141,7 @@ fileDict = dtr.data["files"]
 # # Generically we run this to instantiate the data:
 # Dieter.parse_data_to_model!(dtr; dataname=dataname)
 # # else:
-# %% Load data into the model: Base data
+## %% Load data into the model: Base data
 
 dfDict["nodes"] = parse_file(fileDict["nodes"]; dataname=dataname)
 parse_nodes!(dtr,dfDict["nodes"])
@@ -160,13 +160,13 @@ dfDict["tech"] = parse_file(fileDict["tech"]; dataname=dataname)
 # e.g. fileDict["storage"] = joinpath(datapath,"base","storages.csv")
 dfDict["storage"] = parse_file(fileDict["storage"]; dataname=dataname)
 
-# %% Relations (i.e set-to-set correspondences)
+## %% Relations (i.e set-to-set correspondences)
 dfDict["map_node_demand"] = parse_file(fileDict["map_node_demand"]; dataname=dataname)
 dfDict["map_node_tech"] = parse_file(fileDict["map_node_tech"]; dataname=dataname)
 dfDict["map_node_storages"] = parse_file(fileDict["map_node_storages"]; dataname=dataname)
 dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
 
-# %% Add VPP battery type (included as existing capacity)
+## %% Add VPP battery type (included as existing capacity)
 
 # Split VPP state capacities evenly across TxZones in that state:
 RegionTxSplit = Dict("NSW1" => 4, "VIC1" => 4, "QLD1" => 4, "SA1" => 3, "TAS1" => 1)
@@ -219,7 +219,7 @@ select(df_add_vpp_map, :Nodes,:Technologies, :IncludeFlag)
 append!(dfDict["storage"], select(df_add_vpp, Not(:DemandRegion)))
 append!(dfDict["map_node_storages"], select(df_add_vpp_map, :Nodes,:Technologies, :IncludeFlag))
 
-# %% Additional modifications to included technologies:
+## %% Additional modifications to included technologies:
 
 # # Remove technologies if directed:
 # Remove new gas if specified:
@@ -250,14 +250,14 @@ if NoNewDistillate
       end
 end
 
-# %%  Relations to determine which (Nodes,Technologies) pairs are included in the model:
+## %%  Relations to determine which (Nodes,Technologies) pairs are included in the model:
 # # Note: we should not change dfDict["map_node_tech"] and dfDict["map_node_storages"] beyond here:
 rel_node_tech = create_relation(dfDict["map_node_tech"],:Nodes,:Technologies,:IncludeFlag)
 rel_node_storages = create_relation(dfDict["map_node_storages"],:Nodes,:Technologies,:IncludeFlag)
 
 # These relations are also set up in parse_arcs!(..) called later on.
 
-# %% Renewable Energy Targets
+## %% Renewable Energy Targets
 
 # Load in the complete RET scenario data sets:
 fileDict["re_targets"] = joinpath(datapath,"base","re_targets.sql")
@@ -273,7 +273,7 @@ dtr.settings[:min_res] = Dict(eachrow(
 if dtr.settings[:min_res]["TAS1"] > 100
       dtr.settings[:min_res]["TAS1"] = 100
 end
-# %% New capital / overnight costs
+## %% New capital / overnight costs
 fileDict["capital_costs"] = joinpath(datapath,"base","capital_costs.sql")
 dfDict["capital_costs"] = parse_file(fileDict["capital_costs"]; dataname=dataname)
 
@@ -343,7 +343,7 @@ dict_h2_demand_tonne = Dict([(k,tonne_H2_per_PJ*v) for (k,v) in dict_h2_demand])
 
 # We split the Demand Region H2 demand into DemandZones below, after parse_extensions!(..)
 
-# %% Synchronous condensers
+## %% Synchronous condensers
 # Synchronous condenser with flywheel - cost in $ per inertial units of `MWs`
 
 SynConOvernightCost =  round(1.0E6*185.2/4400, digits=2) # Units:  $/MWs
@@ -357,7 +357,7 @@ SynConCapCost = SynConOvernightCost*Dieter.annuity(i, LifetimeSynCon)
 dtr.parameters[:SynConCapCost] = Dict("SynConNew" => SynConCapCost)
 # SynCon_New_Cost =
 
-# %% Additional parameters
+## %% Additional parameters
 # # Minimum stable generation levels:
 fileDict["min_stable_gen"] = joinpath(datapath,"base","min_stable_gen.sql")
 dfDict["min_stable_gen"] = parse_file(fileDict["min_stable_gen"]; dataname=dataname)
@@ -389,7 +389,7 @@ dfDict["TxZ_connect"] = parse_file(fileDict["TxZ_connect"]; dataname=dataname)
 params_txc = Dieter.map_idcol(dfDict["TxZ_connect"], [:Region, :Technologies], skip_cols=Symbol[])
 for (k,v) in params_txc Dieter.update_dict!(dtr.parameters, k, v) end
 
-# %% Technology capacity overwrites by scenario:
+## %% Technology capacity overwrites by scenario:
 # This creates a parameter called ScenarioCapacity indexed by Region, Technologies
 fileDict["tech_scenario"] = joinpath(datapath,"base","tech_scenario.sql")
 dfDict["tech_scenario"] = parse_file(fileDict["tech_scenario"]; dataname=dataname)
@@ -431,7 +431,7 @@ ScenarioCapacityDict = dtr.parameters[:ScenarioCapacity]
 # particularly certain fossil fuel tech. types like OCGT w. diesel/distillate.
 
 
-# %% Carbon
+## %% Carbon
 
 fileDict["carbon_param"] = joinpath(datapath,"base","carbon_param.sql")
 dfDict["carbon_param"] = parse_file(fileDict["carbon_param"]; dataname=dataname)
@@ -459,7 +459,7 @@ dfDict["tech"] = @byrow! dfDict["tech"] begin
 
 # dtr.parameters[:CarbonBudget] = scen_settings[:carbon_budget]
 
-# %% Modify data in-frame:
+## %% Modify data in-frame:
 
 # Existing capacity
 # sqlquery_exi_cap = SQLite.Query(SQLite.DB(sql_db_path), "SELECT * FROM Existing_Cap"; stricttypes=false);
@@ -569,10 +569,31 @@ dfExistingCap = @linq dfDict["tech"] |>
                   where(:ExistingCapacity .> 0)
 
 # Modify (if necessary) upper bound on REZones that incorporates existing capacity:
+SolarLimit = dtr.parameters[:SolarLimit]
+WindLimit = dtr.parameters[:WindLimitOnshore]
 TotalBuildCap = dtr.parameters[:TotalBuildCap]
-for rez in keys(TotalBuildCap)
+
+for rez in REZones # keys(TotalBuildCap)
+      existing_solar_capacity = @where(dfExistingCap, :Region .== rez, :TechType .== "Photovoltaic")
+      existing_wind_capacity = @where(dfExistingCap, :Region .== rez, occursin.(r"Wind",:TechType))
       existing_rez_capacity = @where(dfExistingCap, :Region .== rez, :TechType .!== "Hydro")
-      rez_sum = sum(existing_rez_capacity[!,:ExistingCapacity])
+
+      solar_sum = sum(existing_solar_capacity[!,:ExistingCapacity])
+      wind_sum = sum(existing_wind_capacity[!,:ExistingCapacity])
+      rez_sum = solar_sum + wind_sum # sum(existing_rez_capacity[!,:ExistingCapacity])
+
+      new_solar_bound = max(SolarLimit[rez],solar_sum)
+      if SolarLimit[rez] !== new_solar_bound
+            @info "SolarLimit parameter overwritten for REZone $(rez) with value $(new_solar_bound)."
+      end
+      SolarLimit[rez] = new_solar_bound
+
+      new_wind_bound = max(WindLimit[rez],wind_sum)
+      if WindLimit[rez] !== new_wind_bound
+            @info "WindLimit parameter overwritten for REZone $(rez) with value $(new_wind_bound)."
+      end
+      WindLimit[rez] = new_wind_bound
+
       new_rez_bound = max(TotalBuildCap[rez],rez_sum)
       if TotalBuildCap[rez] !== new_rez_bound
             @info "TotalBuildCap parameter overwritten for REZone $(rez)."
@@ -580,7 +601,7 @@ for rez in keys(TotalBuildCap)
       TotalBuildCap[rez] = new_rez_bound
 end
 
-# %% Parse data into model structure:
+## %% Parse data into model structure:
 parse_base_technologies!(dtr, dfDict["tech"])
 parse_storages!(dtr, dfDict["storage"])
 # Create relational sets
@@ -588,7 +609,7 @@ initialise_set_relation_data!(dtr)
 parse_set_relations!(dtr)
 parse_arcs!(dtr,dfDict["arcs"])
 
-# %% Transmission expansion along arcs
+## %% Transmission expansion along arcs
 # # We construct a dictionary of tranmission expansion costs, indexed by arcs `(from,to)`
 # # where `from` may be in `REZones` or `TxZones`, and `to` is in `TxZones`
 
@@ -636,10 +657,10 @@ for (from,to) in dtr.sets[:Arcs]
 end
 dtr.parameters[:ExpansionLimit_Tx] = ExpansionLimit_Tx
 
-# %% Calculate amortised costs
+## %% Calculate amortised costs
 Dieter.calc_inv_trans_exp!(dtr)
 
-# %% Construct demand load data
+## %% Construct demand load data
 # Format of columns: TimeIndex, DemandRegion, Load (value)
 # e.g. fileDict["load"] = joinpath(datapath,"base","load.csv")
 # dfDict["load"] = parse_file(fileDict["load"]; dataname=dataname)
@@ -706,7 +727,7 @@ if size(df_load_neg)[1] !== 0
 end
 
 
-# %% Calculate total and peak demand
+## %% Calculate total and peak demand
 # DemandRegions = dtr.sets[:DemandRegions]
 YearlyEnergy = Dict{String,Float64}()
 Peaks = Dict{String,Float64}()
@@ -719,7 +740,7 @@ end
 
 dtr.parameters[:Peaks] = Peaks
 
-# %% Scenario modification of Demand :
+## %% Scenario modification of Demand :
 
 # Transform from Demand Region to a sub-regional Demand Zone with a certain split:
 fileDict["demand_split"] = joinpath(datapath,"base","demand_split.sql")
@@ -758,11 +779,11 @@ dfDict["load"] = @byrow! dfDict["load"] begin
                         :Load = ds_Dict[:DemandRegion]*:Load
                   end
 =#
-# %% Read the load data
+## %% Read the load data
 parse_load!(dtr, dfDict["load_share"])
 # parse_load!(dtr, dfDict["load"])
 
-# %% Inertia -  data and constraints
+## %% Inertia -  data and constraints
 
 fileDict["inertia_tech"] = joinpath(datapath,"base","inertia_tech.sql")
 dfDict["inertia_tech"] = parse_file(fileDict["inertia_tech"]; dataname=dataname)
@@ -818,7 +839,7 @@ dtr.parameters[:RequireRatio] = RequireRatio
 
 
 
-# %% Construct availability traces
+## %% Construct availability traces
 # Format of columns:
 #   TimeIndex (Int64), RenewRegionID (String), TechTypeID (String), Availability (Float64)
 # e.g. fileDict["avail"] = joinpath(datapath,"base","availability.csv")
@@ -907,15 +928,15 @@ dtr.sets[:Nodes_NonDispatch] = Dieter.tuple2_filter(rel_rez_tech, Nodes, NonDisp
 dtr.sets[:Nodes_NonDispatch] = intersect(dtr.sets[:Nodes_NonDispatch],dtr.sets[:Nodes_Techs])
 # NND = Dieter.tuple2_filter(rel_rez_tech, Nodes, NonDispatchable)
 
-# %% Calculated base parameters
+## %% Calculated base parameters
 calc_base_parameters!(dtr)
-# %% Extensions
+## %% Extensions
 parse_extensions!(dtr,dataname=sql_db_path)
 
 # H2 Modelling Setup.
 # If dtr.settings[:h2] == 0 then we just model an aggregate yearly H2 demand via Electrolysers.
 # Hence, we set Gas Storage and Gas-to-Power sets to null:
-if dtr.settings[:h2] == 0
+if !ismissing(dtr.settings[:h2]) && dtr.settings[:h2] == 0
       dtr.sets[:Nodes_GasStorages] = Array{String,1}[]
       @info "No H2 Storage aspect present in model."
       dtr.sets[:Nodes_G2P] = Array{String,1}[]
@@ -942,7 +963,7 @@ end
 
 dtr.parameters[:H2Demand] = H2Demand
 
-# %% Initialise model
+## %% Initialise model
 
 # # Construct an optimizer factory
 # solver = Clp.Optimizer
@@ -951,7 +972,7 @@ solver = CPLEX.Optimizer
 # build_model!(dtr,solver; timestep=-1)
 build_model!(dtr,solver,timestep=timestep)
 
-# %% Access model objects for further development:
+## %% Access model objects for further development:
 
 G = dtr.model.obj_dict[:G]
 N_TECH = dtr.model.obj_dict[:N_TECH]
@@ -961,7 +982,7 @@ STO_IN = dtr.model.obj_dict[:STO_IN]
 N_RES_EXP = dtr.model.obj_dict[:N_RES_EXP]
 N_SYNC = dtr.model.obj_dict[:N_SYNC]
 
-# %% Fix necessary variables for this scenario:
+## %% Fix necessary variables for this scenario:
 
 # No storage inflow in first period
 for (n,sto) in dtr.sets[:Nodes_Storages]
@@ -1023,7 +1044,7 @@ end
 #       end
 # end
 
-# %% Compatibility check between Minimum Stable Generation constraint `MinStableGeneration`,
+## %% Compatibility check between Minimum Stable Generation constraint `MinStableGeneration`,
 # and the maximum carbon allowance / CarbonBudget constraint `CarbonBudgetLimit`:
 
 # periods = round(Int,Dieter.hoursInYear*(2/timestep))
@@ -1043,9 +1064,32 @@ if MinStableCarbon >= CarbonBudget
       error("Dieter:STABLE-data-check: The minimum level of carbon from min. stable generation exceeds the carbon budget.")
 end
 
-# %% Hydro reservoir constraints:
+## %% Renewable build limits
 
-inflows_table = CSV.read(joinpath(trace_read_path,"HydroInflowsGWh.csv"))
+Solar_Tech_to_Limit = unique(@linq dfDict["tech"] |> where(:FuelType .== "Solar") |> select(:Technologies))[:,1]
+# ["SolarPV_Exi","SolarPV_New","SolThermal_New"]
+
+Wind_Onshore_Tech_to_Limit = ["WindOn_Exi","WindOn_New"]
+ # = unique(@linq dfDict["tech"] |> where(:FuelType .== "Wind") |> select(:Technologies))[:,1]
+
+SolarLimit = dtr.parameters[:SolarLimit]
+WindLimit = dtr.parameters[:WindLimitOnshore]
+
+@constraint(dtr.model, SolarBuildLimit[rez=REZones],
+      sum(N_TECH[(z,t)] for (z,t) in dtr.sets[:Nodes_Techs]
+            if (z == rez && t in Solar_Tech_to_Limit))
+      <= SolarLimit[rez]
+);
+
+@constraint(dtr.model, WindOnshoreBuildLimit[rez=REZones],
+      sum(N_TECH[(z,t)] for (z,t) in dtr.sets[:Nodes_Techs]
+            if (z == rez && t in Wind_Onshore_Tech_to_Limit))
+      <= WindLimit[rez]
+);
+
+## %% Hydro reservoir constraints:
+
+inflows_table = DataFrame!(CSV.File(joinpath(trace_read_path,"HydroInflowsGWh.csv")))
 inflows = stack(inflows_table, variable_name=:Month)
 
 HydroInflow = Dict{Tuple{String,Int64},Float64}()
@@ -1055,7 +1099,7 @@ end
 
 # Create a correspondence of Hours to the month of the year.
 Hours = dtr.sets[:Hours]
-HtoM = Dict(eachrow(CSV.read(joinpath(trace_read_path,"HoursToMonths.csv"))));
+HtoM = Dict(eachrow(DataFrame!(CSV.File(joinpath(trace_read_path,"HoursToMonths.csv")))));
 dtr.parameters[:HtoM] = HtoM
 
 SchemeToRegion = Dict{String,Vector{Tuple{String,String}}}()
@@ -1096,7 +1140,7 @@ SchemeToRegion["OvensMurray"] = [("V1", "Hydro_Exi")]
 
 
 
-# %% Specialised solver settings
+## %% Specialised solver settings
 # CPLEX:
 # JuMP.set_optimizer_attribute(dtr.model,"CPX_PARAM_THREADS", 4)        #  number of threads
 JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_PARALLELMODE", 0)   #   -1: Opportunistic parallel, 0: Automatic parallel, 1: Deterministic
@@ -1105,23 +1149,23 @@ JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_LPMETHOD", 6)       #  0: aut
 # JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_SOLUTIONTYPE", 2)   #  Specifies type of solution (basic or non basic) that CPLEX produces
 JuMP.set_optimizer_attribute(dtr.model, "CPX_PARAM_BAREPCOMP", 1e-6)   # Sets the tolerance on complementarity for convergence; default: 1e-8.
 
-# %% Solve the model and generate results
+## %% Solve the model and generate results
 display(dtr.settings)
 solve_model!(dtr)
 resultsIndex = generate_results!(dtr)
 
-# %% Abbreviations:
+## %% Abbreviations:
 sets = dtr.sets
 mod = dtr.model
 par = dtr.parameters
 res = dtr.results
 
-# %% Analysis
+## %% Analysis
 # # include("analysis.jl")
 # df_summ = summarize_result(dtr,del_zeros=false)
 #
 
-# %% Save results to file
+## %% Save results to file
 # # include("save.jl")
 #
 # # rdir = joinpath(projectpath,resultspath)
@@ -1141,7 +1185,7 @@ Serialization.serialize(joinpath(resultsdir,scenario_timestamp*".settings"),dtr.
 # periods = round(Int,Dieter.hoursInYear*(2/timestep))
 # time_ratio = Dieter.hoursInYear//periods
 
-# %% Get the results:
+## %% Get the results:
 
 include("src/results_transform.jl")
 
@@ -1151,11 +1195,11 @@ include("src/results_summary.jl")
 # resultsdir = outputdir
 include("src/write.jl")
 
-# %% Merge results with other runs
+## %% Merge results with other runs
 # # include("merge.jl")
 # post_process_results(rdir)
 #
 
-# %% Plot timeseries
+## %% Plot timeseries
 
 # include("src/plot_timeseries.jl")

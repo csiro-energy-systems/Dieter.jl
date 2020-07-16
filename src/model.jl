@@ -440,13 +440,13 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     # Renewable energy zone build limits.
     @info "Renewable energy zone build limits."
-    @constraint(m, REZBuildLimits[rez in REZones],
+    @constraint(m, REZBuildLimits[rez=REZones],
         sum(N_TECH[(z,t)] for (z,t) in Nodes_Techs if (z == rez && !occursin(r"Hydro_",t))) ## TODO: remove this hard-coding!
             <= TotalBuildCap[rez] + N_RES_EXP[rez]
     );
 
     @info "Renewable energy zone expansion limits."
-    @constraint(m, REZExpansionBound[rez in REZones],
+    @constraint(m, REZExpansionBound[rez=REZones],
         N_RES_EXP[rez] <= ExpansionLimit[rez]
     );
 

@@ -42,7 +42,7 @@ Scenario_BattVPP_Dict = Dict(
 #    and there is a simple minimum amount of hydrogen in a year from Electrolysers.
 # 2 means H2 tech. included
 #    and there is a round-trip storage path of Electrolysers, GasStorage and Gas-To-Power.
-Scenario_H2_Map = Dict(
+Scenario_H2_Map = Dict{String,Union{Int64,Missing}}(
       "Scen1_BAU" => 0,  # Current Trends
       "Scen2_DDC" => 0,  # Deep Decarbonisation
       "Scen3_PRP" => 0,  # Prosumer Power

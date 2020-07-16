@@ -20,11 +20,13 @@ CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Gen-REZ.csv"),resSplit[:REZ
 CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Storage.csv"),resSplit[:STORAGE])
 CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-Flow.csv"),resSplit[:FLOW])
 
-CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-H2-P2G.csv"),
-      unstack(resSplit[:H2_P2G],:Hours,:Nodes,:H2_P2G))
+if !ismissing(dtr.settings[:h2])
+    CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-H2-P2G.csv"),
+          unstack(resSplit[:H2_P2G],:Hours,:Nodes,:H2_P2G))
 
-CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-H2-P2G-NEM.csv"),
-      combine(:H2_P2G => sum, groupby(resSplit[:H2_P2G],[:Hours])))
+    CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-H2-P2G-NEM.csv"),
+          combine(:H2_P2G => sum, groupby(resSplit[:H2_P2G],[:Hours])))
+end
 
 CSV.write(joinpath(resultsdir,"$(scenario_timestamp)-REZ_Split.csv"),
       unstack(
