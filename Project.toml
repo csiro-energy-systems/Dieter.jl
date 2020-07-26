@@ -1,6 +1,6 @@
 name = "Dieter"
 uuid = "82bee632-140d-11e9-0e64-453bcc1f3349"
-authors = ["mak <mak@wip.tu-berlin.de>"]
+authors = ["mak <mak@wip.tu-berlin.de>, James D Foster <James.Foster@csiro.au> and contributors"]
 version = "0.1.1"
 
 [deps]

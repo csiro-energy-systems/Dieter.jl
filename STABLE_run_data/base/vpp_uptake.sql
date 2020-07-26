@@ -1,9 +1,0 @@
-SELECT
-    Year,
-    Region,
-    ValueType,
-    Unit,
-    VPP_Scenario,
-    Data
-FROM
-VPP_Battery_Uptake
