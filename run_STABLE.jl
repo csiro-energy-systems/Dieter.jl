@@ -24,8 +24,9 @@ import Serialization
 import OrderedCollections: OrderedDict
 sortbyvals(d::Dict) = sort!(OrderedDict(d),byvalue=true,rev=true)
 
-include("scenario/TG_scenarios.jl")
+# include("scenario/TG_scenarios.jl")
 
+ScenarioName = dtr.settings[:scen]
 
 ## %% Scenario Settings (to customise by modeller)
 
@@ -36,10 +37,10 @@ ScenarioName = "Scen1_BAU"
 @assert ScenarioName in Allowed_Scenarios
 
 # Specfied Year for the scenario setting:
-ScenarioYear = 2030
-# ScenarioYear = 2050
+InstanceYear = 2030
+# InstanceYear = 2050
 
-ScYr_Sym = Symbol("FYE$ScenarioYear")  # Scenario year symbol
+InstYear_Sym = Symbol("FYE$InstanceYear")  # Instance year symbol
 ScenarioNumber = Scenario_Number_Dict[ScenarioName]
 
 # # If FixExistingCapFlag is `true`, then fix existing capacity to given values,
@@ -49,7 +50,9 @@ FixExistingCapFlag = true
 NoNewGas = false
 NoNewDistillate = false
 
+# TODO: replace with second
 TxCost_Scaling = Scenario_TxCost_Scaling_Dict[ScenarioName]
+TxCost_Scaling = dtr_settings[:scaling_Tx]
 
 scen_settings = Dict{Symbol,Any}()
 
@@ -67,8 +70,8 @@ scen_settings[:trace_year] = TraceYear
 # Technology
 
 scen_settings[:scen_name] = ScenarioName
-scen_settings[:scen_year] = ScenarioYear
-scen_settings[:scen] = run_timestamp*"-$(ScenarioName)-ScYr$(ScenarioYear)-$(Note)"
+scen_settings[:scen_year] = InstanceYear
+scen_settings[:scen] = run_timestamp*"-$(ScenarioName)-InstYr$(InstanceYear)-$(Note)"
 
 scenario_timestamp = scen_settings[:scen]
 
@@ -84,7 +87,7 @@ scen_settings[:h2] = Scenario_H2_Map[ScenarioName]  # `missing` means H2 not inc
 scen_settings[:lifetime_Tx] = 40
 scen_settings[:scaling_Tx] = TxCost_Scaling
 # Multiplier for setting upper bound on size of expansion:
-scen_settings[:exp_bound_multiple] = 10
+# exp_bound_multiple = dtr.settings[:exp_bound_multiple]
 
 # Half-hourly: timestep=1, Hourly: timestep=2,
 # If timestep = 2, we obtain an hourly approximation of half-hour data by sampling on every second data point.
@@ -97,8 +100,8 @@ scen_settings[:coal_adjust] = 1;
 # # Set the maximum allowed contribution to peak demand by a single technology
 # scen_settings[:peak_factor] = 2.5;
 
-# CarbonBudgetDict by ScenarioName and ScenarioYear in millions of t-CO2 (Mt-CO2e)
-# scen_settings[:carbon_budget] = 1000*CarbonBudgetDict[ScenarioName,ScenarioYear]
+# CarbonBudgetDict by ScenarioName and InstanceYear in millions of t-CO2 (Mt-CO2e)
+# scen_settings[:carbon_budget] = 1000*CarbonBudgetDict[ScenarioName,InstanceYear]
 
 ## %% Data paths and connections (to customise by modeller)
 
@@ -177,8 +180,8 @@ dfDict["vpp_uptake"] = parse_file(fileDict["vpp_uptake"]; dataname=dataname)
 
 df_vpp_data = @linq dfDict["vpp_uptake"] |>
             where(
-                  :Year .== ScenarioYear,
-                  :VPP_Scenario .== Scenario_BattVPP_Dict[ScenarioName]
+                  :Year .== InstanceYear,
+                  :VPP_Scenario .== dtr.settings[:vpp_scen] # Scenario_BattVPP_Dict[ScenarioName]
             ) |>
             select(:Region, :ValueType, :Data)
 
@@ -266,7 +269,7 @@ dfDict["re_targets"] = parse_file(fileDict["re_targets"]; dataname=dataname)
 # Filter the data set for the current Scenario, and put in the model settings:
 dtr.settings[:min_res] = Dict(eachrow(
       @linq dfDict["re_targets"] |>
-      where(:ScenarioName .== ScenarioName, :ScenarioYear .== ScenarioYear) |>
+      where(:ScenarioName .== ScenarioName, :InstanceYear .== InstanceYear) |>
       select(:Region, :MinRET)
       ))
 
@@ -277,30 +280,30 @@ end
 fileDict["capital_costs"] = joinpath(datapath,"base","capital_costs.sql")
 dfDict["capital_costs"] = parse_file(fileDict["capital_costs"]; dataname=dataname)
 
-# Rename the ScenarioYear column as `:ScenCostPower`:
+# Rename the InstanceYear column as `:ScenCostPower`:
 df_cap_costs = DataFrames.rename!(
-      dfDict["capital_costs"][!,[:Technologies, :Scenario, ScYr_Sym]],
-      Dict(ScYr_Sym => :ScenCostPower)
+      dfDict["capital_costs"][!,[:Technologies, :TechCostScenario, InstYear_Sym]],
+      Dict(InstYear_Sym => :ScenCostPower)
       )
 # Filter by the current Scenario:
-df_cap_costs = @linq df_cap_costs |> where(:Scenario .== Scen_ISP_Map[ScenarioName])
+df_cap_costs = @linq df_cap_costs |> where(:TechCostScenario .== TechCostScenario)
 # Read into model parameters:
-params_cap_costs = Dieter.map_idcol(df_cap_costs, [:Technologies], skip_cols=Symbol[:Scenario])
+params_cap_costs = Dieter.map_idcol(df_cap_costs, [:Technologies], skip_cols=Symbol[:TechCostScenario])
 for (k,v) in params_cap_costs Dieter.update_dict!(dtr.parameters, k, v) end
 
 # # Energy storage technologies:
 fileDict["cost_energy_storage"] = joinpath(datapath,"base","cost_energy_storage.sql")
 dfDict["cost_energy_storage"] = parse_file(fileDict["cost_energy_storage"]; dataname=dataname)
 
-# Rename the ScenarioYear column with ScenCostEnergy:
+# Rename the InstanceYear column with ScenCostEnergy:
 df_costES = DataFrames.rename!(
-      dfDict["cost_energy_storage"][!,[:Technologies, :Scenario, ScYr_Sym]],
-      Dict(ScYr_Sym => :ScenCostEnergy)
+      dfDict["cost_energy_storage"][!,[:Technologies, :TechCostScenario, InstYear_Sym]],
+      Dict(InstYear_Sym => :ScenCostEnergy)
       )
 # Filter by the current Scenario:
-df_costES = @linq df_costES |> where(:Scenario .== Scen_ISP_Map[ScenarioName])
+df_costES = @linq df_costES |> where(:TechCostScenario .== TechCostScenario)
 # Read into model parameters:
-params_costES = Dieter.map_idcol(df_costES, [:Technologies], skip_cols=Symbol[:Scenario])
+params_costES = Dieter.map_idcol(df_costES, [:Technologies], skip_cols=Symbol[:TechCostScenario])
 for (k,v) in params_costES Dieter.update_dict!(dtr.parameters, k, v) end
 
 # # Hydrogen technologies:
@@ -308,13 +311,13 @@ fileDict["h2_cost"] = joinpath(datapath,"h2","h2_cost.sql")
 dfDict["h2_cost"] = parse_file(fileDict["h2_cost"]; dataname=dataname)
 
 df_h2_cost = DataFrames.rename!(
-      dfDict["h2_cost"][!,[:Technologies, :Scenario, ScYr_Sym]],
-      Dict(ScYr_Sym => :ScenCostPower)
+      dfDict["h2_cost"][!,[:Technologies, :TechCostScenario, InstYear_Sym]],
+      Dict(InstYear_Sym => :ScenCostPower)
       )
 # Filter by the current Scenario:
-df_h2_cost = @linq df_h2_cost |> where(:Scenario .== Scen_ISP_Map[ScenarioName])
+df_h2_cost = @linq df_h2_cost |> where(:TechCostScenario .== TechCostScenario)
 # Read into model parameters:
-params_h2_cost = Dieter.map_idcol(df_h2_cost, [:Technologies], skip_cols=Symbol[:Scenario])
+params_h2_cost = Dieter.map_idcol(df_h2_cost, [:Technologies], skip_cols=Symbol[:TechCostScenario])
 for (k,v) in params_h2_cost Dieter.update_dict!(dtr.parameters, k, v) end
 
 # The above should create parameters in dtr.parameters[:ScenCostPower] for H2 tech.
@@ -335,8 +338,8 @@ fileDict["h2_demand"] = joinpath(datapath,"h2","h2_demand.sql")
 dfDict["h2_demand"] = parse_file(fileDict["h2_demand"]; dataname=dataname)
 
 df_h2_demand = @linq dfDict["h2_demand"] |> where(:ScenarioName .== ScenarioName)
-# select(df_h2_demand,:DemandRegion, ScYr_Sym => :H2_Demand)
-dict_h2_demand = Dict(eachrow(select(df_h2_demand,:DemandRegion, ScYr_Sym => :H2_Demand)))
+# select(df_h2_demand,:DemandRegion, InstYear_Sym => :H2_Demand)
+dict_h2_demand = Dict(eachrow(select(df_h2_demand,:DemandRegion, InstYear_Sym => :H2_Demand)))
 
 # Scale values of H2 Demand in PJ to a value in tonne-H2.
 dict_h2_demand_tonne = Dict([(k,tonne_H2_per_PJ*v) for (k,v) in dict_h2_demand])
@@ -397,8 +400,8 @@ dfDict["tech_scenario"] = parse_file(fileDict["tech_scenario"]; dataname=datanam
 df_techscen = @linq dfDict["tech_scenario"] |> where(:ScenarioName .== ScenarioName)
 
 df_techscen = DataFrames.rename!(
-      df_techscen[!,[:Region, :TechID, ScYr_Sym]],
-      Dict(:TechID => :Technologies, ScYr_Sym => :ScenarioCapacity)
+      df_techscen[!,[:Region, :TechID, InstYear_Sym]],
+      Dict(:TechID => :Technologies, InstYear_Sym => :ScenarioCapacity)
       )
 
 
@@ -424,7 +427,7 @@ end
 ScenarioCapacityDict = dtr.parameters[:ScenarioCapacity]
 # OverwriteCapDict = Dict([(n,t) => ScenarioCapacityDict[n,t,y,sc]
 #                         for (n,t,y,sc) in keys(ScenCapacityDict)
-#                         if (y == ScenarioYear && sc == ScenarioName)])
+#                         if (y == InstanceYear && sc == ScenarioName)])
 
 # This will be used later to overwrite and fix certain capacity in the model.
 # It may be necessary to check technologies included here;
@@ -436,7 +439,7 @@ ScenarioCapacityDict = dtr.parameters[:ScenarioCapacity]
 fileDict["carbon_param"] = joinpath(datapath,"base","carbon_param.sql")
 dfDict["carbon_param"] = parse_file(fileDict["carbon_param"]; dataname=dataname)
 
-Scen_co2 = @where(dfDict["carbon_param"], :ScenarioName .== ScenarioName, :ScenarioYear .== ScenarioYear)
+Scen_co2 = @where(dfDict["carbon_param"], :ScenarioName .== ScenarioName, :InstanceYear .== InstanceYear)
 # Scen_co2[!, :CarbonPrice][1]
 dtr.settings[:co2] = Scen_co2[!,:CarbonPrice][1]  # Units in $/t-CO2
 Mt_To_t = 1000 #  convert Mega-tonne to tonne
@@ -481,8 +484,8 @@ dfDict["tech"] = @byrow! dfDict["tech"] begin
        # end
  end
 
-BattEnergyType = dtr.settings[:scen_types][:BattEnergyType]
-HydPumpEnergyType =  dtr.settings[:scen_types][:HydPumpEnergyType]
+BattEnergyType = dtr.settings[:tech_types][:BattEnergyType]
+HydPumpEnergyType =  dtr.settings[:tech_types][:HydPumpEnergyType]
 
 BattEnergyCost = dtr.parameters[:ScenCostEnergy][BattEnergyType]
 HydPumpEnergyCost = dtr.parameters[:ScenCostEnergy][HydPumpEnergyType]
@@ -679,7 +682,7 @@ ta_OpDem = TimeSeries.readtimearray(load_trace_filepath)
 # df_OpDem = DataFrame(CSV.File(load_trace_filepath))
 
 # Filter by Scenario Year
-Financial_Year_Array = [Dates.DateTime(ScenarioYear-1,07,01,00,00,00):Dates.Minute(30):Dates.DateTime(ScenarioYear,06,30,23,30,00)]
+Financial_Year_Array = [Dates.DateTime(InstanceYear-1,07,01,00,00,00):Dates.Minute(30):Dates.DateTime(InstanceYear,06,30,23,30,00)]
 
 ta_OpDem = ta_OpDem[Financial_Year_Array...]
 
@@ -773,7 +776,7 @@ rename!(dfDict["load_share"], Dict(:DemandZone => :Nodes, :LoadShare => :Load))
 # we would use code like this:
 #=
 df_ds = @where(dfDict["demand_scenario"], :ScenarioName .== ScenarioName)
-ds_Dict = Dict(eachrow(select(df_ds,:Region,ScYr_Sym)))
+ds_Dict = Dict(eachrow(select(df_ds,:Region,InstYear_Sym)))
 
 dfDict["load"] = @byrow! dfDict["load"] begin
                         :Load = ds_Dict[:DemandRegion]*:Load

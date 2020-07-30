@@ -25,7 +25,8 @@ function build_model!(dtr::DieterModel,
     # time_ratio relates generation levels in one time-step (e.g 1/2-hourly) to energy in MWh on an hourly basis
     # Used to compare energy to capacity in MW. A 1/2-hourly resolution means time_ratio = 1//2
     time_ratio = hoursInYear//length(Hours)
-    corr_factor = 1//time_ratio  # length(Hours)//hoursInYear
+    dtr.settings[:time_ratio] = time_ratio
+    # corr_factor = 1//time_ratio  # length(Hours)//hoursInYear
 
     dtr.sets[:Hours] = Hours
 
@@ -33,15 +34,15 @@ function build_model!(dtr::DieterModel,
 
     # Set definitions
 
-    Technologies = dtr.sets[:Technologies]  # Generation technologies
-    Storages = dtr.sets[:Storages]          # Storage technologies
+    # # Available sets, but not used directly in model:
+        # Technologies = dtr.sets[:Technologies]  # Generation technologies
+        # Storages = dtr.sets[:Storages]          # Storage technologies
+        # Renewables = dtr.sets[:Renewables]           # Renewable generation technologies
+        # Conventional = dtr.sets[:Conventional]       # Conventional generation technologies
+        # Dispatchable = dtr.sets[:Dispatchable]       # Dispatchable generation technologies
+        # NonDispatchable = dtr.sets[:NonDispatchable] # Non-dispatchable generation technologies
 
-    Renewables = dtr.sets[:Renewables]           # Renewable generation technologies
-    Conventional = dtr.sets[:Conventional]       # Conventional generation technologies
-    Dispatchable = dtr.sets[:Dispatchable]       # Dispatchable generation technologies
-    NonDispatchable = dtr.sets[:NonDispatchable] # Non-dispatchable generation technologies
-
-    Nodes = dtr.sets[:Nodes]
+        # Nodes = dtr.sets[:Nodes]
 
     TxZones = dtr.sets[:TxZones]
     REZones = dtr.sets[:REZones]
@@ -103,33 +104,14 @@ function build_model!(dtr::DieterModel,
     HP = dtr.sets[:HeatingType]   # Heating combination type
 
     ## Power-to-gas with Hydrogen
-    P2G = dtr.sets[:P2G]
-    G2P = dtr.sets[:G2P]
-    GasStorages = dtr.sets[:GasStorages]
-
+        # P2G = dtr.sets[:P2G]
+        # G2P = dtr.sets[:G2P]
+        # GasStorages = dtr.sets[:GasStorages]
     Nodes_P2G = dtr.sets[:Nodes_P2G]
     Nodes_G2P = dtr.sets[:Nodes_G2P]
     Nodes_GasStorages = dtr.sets[:Nodes_GasStorages]
 
     # Parameter definitions
-    H2Conversion = dtr.parameters[:H2Conversion]  # Units: MWh / tonne-H2
-    # H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
-    H2Demand = dtr.parameters[:H2Demand] # Units: tonne-H2 / year
-
-
-    EvDemand = dtr.parameters[:AbsoluteEvDemand]
-    EvPower = dtr.parameters[:AbsoluteEvPower]
-    EvCapacity = dtr.parameters[:AbsoluteEvCapacity]
-    EvFuel = dtr.parameters[:EvFuel]
-    EvType = dtr.parameters[:EvType]
-
-    HeatConsumption = dtr.parameters[:HeatConsumption]  # Units: MWh per m^2 per hour
-    HeatShare = dtr.parameters[:HeatShare]
-    MaxLevel = dtr.parameters[:MaxLevel]
-    HeatMaxPower = dtr.parameters[:HeatMaxPower]
-    StaticEfficiency = dtr.parameters[:StaticEfficiency]
-    CoP = dtr.parameters[:CoP]
-
 
     MarginalCost = dtr.parameters[:MarginalCost] # Units: currency/MWh; Marginal cost per unit of generated energy
     InvestmentCost = dtr.parameters[:InvestmentCost] # Units: currency/MW; Investment cost per unit of generation power capacity
@@ -630,9 +612,49 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     next!(prog)
     println("\n")
 
+    if dtr.settings[:ev_flag] # == true
+        build_ev_constraints(dtr)
+        next!(prog)
+        println("\n")
+    end
+    
+    if dtr.settings[:h2_flag]
+        build_h2_constraints(dtr)
+        next!(prog)
+        println("\n")
+    end
+
+    if dtr.settings[:heat_flag]
+        build_heat_load_constraints(dtr)
+        next!(prog)
+        println("\n")
+    end
+
+    return dtr
+end
+
+
+function build_ev_constraints(dtr::DieterModel)
 # %% * ----------------------------------------------------------------------- *
 #    ***** Electric vehicle constraints *****
 #    * ----------------------------------------------------------------------- *
+
+    # Sets:
+    EV = dtr.sets[:ElectricVehicles]
+
+    # Parameters:
+    EvDemand = dtr.parameters[:AbsoluteEvDemand]
+    EvPower = dtr.parameters[:AbsoluteEvPower]
+    EvCapacity = dtr.parameters[:AbsoluteEvCapacity]
+    EvFuel = dtr.parameters[:EvFuel]
+    EvType = dtr.parameters[:EvType]
+
+    # Variables:
+    EV_CHARGE = dtr.model.obj_dict[:EV_CHARGE]
+    EV_DISCHARGE = dtr.model.obj_dict[:EV_DISCHARGE]
+    EV_L = dtr.model.obj_dict[:EV_L]
+    EV_PHEVFUEL = dtr.model.obj_dict[:EV_PHEVFUEL]
+    EV_INF = dtr.model.obj_dict[:EV_INF]
 
     @info "Electric Vehicles: electric charge allowable."
     @constraint(m, MaxWithdrawEV[ev=EV,h=Hours],
@@ -673,12 +695,37 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         + EV_INF[ev, Hours[end]]
     );
 
-    next!(prog)
-    println("\n")
+    # next!(prog)
+    # println("\n")
 
+    return dtr
+end
+
+
+function build_h2_constraints(dtr::DieterModel)
 # %% * ----------------------------------------------------------------------- *
 #    ***** Hydrogen constraints *****
 #    * ----------------------------------------------------------------------- *
+
+    # Sets:
+    Nodes_P2G = dtr.sets[:Nodes_P2G]
+    Nodes_G2P = dtr.sets[:Nodes_G2P]
+    Nodes_GasStorages = dtr.sets[:Nodes_GasStorages]
+
+    # Parameters:
+    H2Conversion = dtr.parameters[:H2Conversion]  # Units: MWh / tonne-H2
+    # H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
+    H2Demand = dtr.parameters[:H2Demand] # Units: tonne-H2 / year
+
+    # Variables:
+    H2_P2G = dtr.model.obj_dict[:H2_P2G]
+    H2_G2P = dtr.model.obj_dict[:H2_G2P]
+    H2_GS_L = dtr.model.obj_dict[:H2_GS_L]
+    H2_GS_IN = dtr.model.obj_dict[:H2_GS_IN]
+    H2_GS_OUT = dtr.model.obj_dict[:H2_GS_OUT]
+    N_P2G = dtr.model.obj_dict[:N_P2G]
+    N_G2P = dtr.model.obj_dict[:N_G2P]
+    N_GS = dtr.model.obj_dict[:N_GS]
 
     @info "Hydrogen: Minimum yearly lower bound on power-to-gas."
     @constraint(m, MinYearlyP2G[(n,p2g)=Nodes_P2G],
@@ -737,12 +784,34 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         H2_GS_L[(n,gs), Hours[end]] == StartLevel[n,gs] * N_GS[(n,gs)]
     );
 
-    next!(prog)
-    println("\n")
+    # next!(prog)
+    # println("\n")
 
+    return dtr
+end
+
+function build_heat_load_constraints(dtr::DieterModel)
 # %% * ----------------------------------------------------------------------- *
 #    ***** Heat consumption constraints *****
 #    * ----------------------------------------------------------------------- *
+    # Sets:
+    BU = dtr.sets[:BuildingType]  # Building archtypes
+    HP = dtr.sets[:HeatingType]   # Heating combination type
+
+    # Parameters:
+    time_ratio = dtr.settings[:time_ratio]
+
+    HeatConsumption = dtr.parameters[:HeatConsumption]  # Units: MWh per m^2 per hour
+    HeatShare = dtr.parameters[:HeatShare]
+    MaxLevel = dtr.parameters[:MaxLevel]
+    HeatMaxPower = dtr.parameters[:HeatMaxPower]
+    StaticEfficiency = dtr.parameters[:StaticEfficiency]
+    CoP = dtr.parameters[:CoP]
+
+    # Variables:
+    HEAT_STO_L = dtr.model.obj_dict[:HEAT_STO_L]
+    HEAT_HP_IN = dtr.model.obj_dict[:HEAT_HP_IN]
+    HEAT_INF = dtr.model.obj_dict[:HEAT_INF]
 
     @constraint(m, HeatBalance[bu=BU, hp=HP, h=Hours2],
         HEAT_STO_L[bu,hp,h]
@@ -752,7 +821,6 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         - HeatConsumption[bu,hp][h]
         + HEAT_INF[bu,hp,h]
     );
-
 
     @constraint(m, HeatBalanceFirstHour[bu=BU, hp=HP],
         HEAT_STO_L[bu,hp,Hours[1]]
@@ -771,14 +839,14 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         HEAT_HP_IN[bu,hp,h] <= time_ratio * HeatMaxPower[bu,hp]
     );
 
-    next!(prog)
+    # next!(prog)
 
     return dtr
 end
 
 function solve_model!(dtr::DieterModel)
     @info "Starting optimization..."
-    optimize!(dtr.model)
+    JuMP.optimize!(dtr.model)
 
     return dtr
 end

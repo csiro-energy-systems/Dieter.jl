@@ -123,10 +123,10 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
         # Overwrite values from "h2_technologies" table by Scenario:
         ScenCostPower = dtr.parameters[:ScenCostPower]
 
-        scen_types = dtr.settings[:scen_types]
+        tech_types = dtr.settings[:tech_types]
 
-        H2ElectrolyserType = scen_types[:H2ElectrolyserType]
-        H2RecipEngType = scen_types[:H2RecipEngType]
+        H2ElectrolyserType = tech_types[:H2ElectrolyserType]
+        H2RecipEngType = tech_types[:H2RecipEngType]
 
         if H2ElectrolyserType in keys(ScenCostPower)
             dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
