@@ -3,7 +3,7 @@
 "Given a Dict of keys => filenames, check at files exist"
 function check_files_exist(fileDict::Dict{String,String})
     for (k,v) in fileDict
-        if !isfile(fileDict[k])
+        if !(isfile(fileDict[k]) || isdir(fileDict[k]))
             @error "File \"$(fileDict[k])\" not found."
             return false
         end

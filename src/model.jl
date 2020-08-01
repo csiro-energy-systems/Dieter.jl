@@ -51,6 +51,8 @@ function build_model!(dtr::DieterModel,
     DemandRegions = dtr.sets[:DemandRegions]
     node2DemReg = dtr.parameters[:node_demreg_dict]
 
+    MinimumRenewShare = dtr.settings[:min_res_system]
+
     # Transformations on the minimum renewable share settings:
     min_res_dict = Dict{String,Float64}()
     if isa(dtr.settings[:min_res],Number)
@@ -171,7 +173,7 @@ function build_model!(dtr::DieterModel,
                     "Generation_level" => "G",
                     "Generation_upshift" => "G_UP",
                     "Generation_downshift" => "G_DO",
-                    "Generation_renewable_zones" => "G_REZ",
+                    "Generation_renewable" => "G_REZ",
                     "Generation_transmission_zones" => "G_TxZ",
                     "Storage_inflow" => "STO_IN",
                     "Storage_outflow" => "STO_OUT",
@@ -207,7 +209,7 @@ function build_model!(dtr::DieterModel,
             G_UP[Nodes_Dispatch, Hours] , (base_name=shorter["Generation_upshift"], lower_bound=0)  # Units: MWh per time-interval; Generation level change up
             G_DO[Nodes_Dispatch, Hours], (base_name=shorter["Generation_downshift"], lower_bound=0) # Units: MWh per time-interval; Generation level change down
             # G_INF[Nodes, Hours], (base_name=shorter["Generation_infeasible"], lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Energy Balance
-            G_REZ[REZones,Hours], (base_name=shorter["Generation_renewable_zones"], lower_bound=0) # Units: MWh per time-interval; Generation level - renewable energy zone tech. & stor.
+            G_REZ[REZones,Hours], (base_name=shorter["Generation_renewable"], lower_bound=0) # Units: MWh per time-interval; Generation level - renewable energy zone tech. & stor.
             G_TxZ[TxZones,Hours], (base_name=shorter["Generation_transmission_zones"], lower_bound=0) # Units: MWh per time-interval; Generation level - transmission zone tech. & stor.
             # G_RES[Nodes_Renew, h in HOURS], (base_name=shorter["Generation_renewable"], lower_bound=0) # Units: MWh; Generation level - renewable gen. tech.
             # CU[Nodes_NonDispatch, Hours], (base_name=shorter["Curtailment_renewables"], lower_bound=0) # Units: MWh per time-interval; Non-dispatchable curtailment
@@ -507,6 +509,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             sum(
                sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
              + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+
              + sum(STO_OUT[(z,sto),h] - STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
 
              + sum(H2_G2P[(z,g2p),h] for (z,g2p) in Nodes_G2P if z == zone)
@@ -519,6 +522,38 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
     # Note: if there is NO renewable energy associated to the DemandRegion, then this constraint will
     # act to zero out ALL generation associated to the DemandRegion.
+
+    #  Minimum yearly renewables requirement for whole of system.
+    @info "Minimum yearly renewables requirement for whole of system."
+    @constraint(m, MinRESsystem,
+        sum(
+            sum(
+                sum(G[(z,t),h] for (z,t) in Nodes_Renew if z == zone)  # Any renewable TxZone-level tech.
+                + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+
+                + sum(H2_G2P[(z,g2p),h] for (z,g2p) in Nodes_G2P if z == zone)
+                - sum(H2_P2G[(z,p2g),h] for (z,p2g) in Nodes_P2G if z == zone)
+
+                for (zone, d) in Nodes_Demand if node2DemReg[d] == n
+                for h in Hours
+            )
+        for n in DemandRegions)
+            >=
+            (MinimumRenewShare/100)*sum(
+                sum(
+                    sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
+                    + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+
+                    + sum(STO_OUT[(z,sto),h] - STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
+
+                    + sum(H2_G2P[(z,g2p),h] for (z,g2p) in Nodes_G2P if z == zone)
+                    - sum(H2_P2G[(z,p2g),h] for (z,p2g) in Nodes_P2G if z == zone)
+
+                    for (zone, d) in Nodes_Demand if node2DemReg[d] == n
+                    for h in Hours
+                )
+            for n in DemandRegions)
+    );
 
 # %% * ----------------------------------------------------------------------- *
 #    ***** Storage constraints *****
@@ -640,6 +675,9 @@ function build_ev_constraints(dtr::DieterModel)
 #    * ----------------------------------------------------------------------- *
 
     # Sets:
+    Hours = dtr.sets[:Hours]
+    Hours2 = Hours[2:end]
+
     EV = dtr.sets[:ElectricVehicles]
 
     # Parameters:
@@ -708,14 +746,19 @@ function build_h2_constraints(dtr::DieterModel)
 #    * ----------------------------------------------------------------------- *
 
     # Sets:
+    Hours = dtr.sets[:Hours]
+    Hours2 = Hours[2:end]
+
     Nodes_P2G = dtr.sets[:Nodes_P2G]
     Nodes_G2P = dtr.sets[:Nodes_G2P]
     Nodes_GasStorages = dtr.sets[:Nodes_GasStorages]
 
     # Parameters:
-    H2Conversion = dtr.parameters[:H2Conversion]  # Units: MWh / tonne-H2
+    time_ratio = dtr.settings[:time_ratio]
+
+    H2Conversion = dtr.parameters[:H2Conversion]  # Units: MWh / tonne-H2 for a given P2G tech.
     # H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
-    H2Demand = dtr.parameters[:H2Demand] # Units: tonne-H2 / year
+    H2Demand = dtr.parameters[:H2Demand] # Units: MWh / year for a given Node and P2G tech.
 
     # Variables:
     H2_P2G = dtr.model.obj_dict[:H2_P2G]
@@ -728,36 +771,36 @@ function build_h2_constraints(dtr::DieterModel)
     N_GS = dtr.model.obj_dict[:N_GS]
 
     @info "Hydrogen: Minimum yearly lower bound on power-to-gas."
-    @constraint(m, MinYearlyP2G[(n,p2g)=Nodes_P2G],
-        sum(H2_P2G[(n,p2g),h]/H2Conversion[n,p2g] for h in Hours) >= H2Demand[n,p2g]
+    @constraint(dtr.model, MinYearlyP2G[(n,p2g)=Nodes_P2G],
+        sum(H2_P2G[(n,p2g),h] for h in Hours) >= H2Demand[n,p2g]
     );
 
     @info "Hydrogen: Variable upper bound on power-to-gas."
-    @constraint(m, MaxP2G[(n,p2g)=Nodes_P2G,h=Hours],
+    @constraint(dtr.model, MaxP2G[(n,p2g)=Nodes_P2G,h=Hours],
         H2_P2G[(n,p2g),h] <= time_ratio * N_P2G[(n,p2g)]
     );
 
     @info "Hydrogen: Variable upper bound on gas-to-power."
-    @constraint(m, MaxG2P[(n,g2p)=Nodes_G2P,h=Hours],
+    @constraint(dtr.model, MaxG2P[(n,g2p)=Nodes_G2P,h=Hours],
         H2_G2P[(n,g2p),h] <= time_ratio * N_G2P[(n,g2p)]
     );
 
     @info "Hydrogen: Variable upper bound on gas storage."
-    @constraint(m, MaxLevelGasStorage[(n,gs)=Nodes_GasStorages,h=Hours],
+    @constraint(dtr.model, MaxLevelGasStorage[(n,gs)=Nodes_GasStorages,h=Hours],
         H2_GS_L[(n,gs),h] <= N_GS[(n,gs)]
     );
 
-    @constraint(m, GasStorageIn[(n,gs)=Nodes_GasStorages,h=Hours],
+    @constraint(dtr.model, GasStorageIn[(n,gs)=Nodes_GasStorages,h=Hours],
         H2_GS_IN[(n,gs),h] == sum(H2_P2G[(n,p2g),h]/H2Conversion[n,p2g] for (n,p2g) in Nodes_P2G)
     );
 
-    @constraint(m, GasStorageOut[(n,gs)=Nodes_GasStorages,h=Hours],
+    @constraint(dtr.model, GasStorageOut[(n,gs)=Nodes_GasStorages,h=Hours],
         H2_GS_OUT[(n,gs),h] == sum(H2_G2P[(n,g2p),h]/H2Conversion[n,g2p] for (n,g2p) in Nodes_G2P)
     );
 
 #=
     @info "Hydrogen: energy balance."
-    @constraint(m, H2Balance[h=Hours],
+    @constraint(dtr.model, H2Balance[h=Hours],
         sum(Efficiency[p2g]*H2_P2G[p2g,h] for p2g in Nodes_P2G)  # No sqrt on Efficiency, not a roundtrip
         + sum(H2_GS_IN[gs,h] for gs in Nodes_GasStorages)   ## Changed: H2_GS_OUT -> H2_GS_IN
         # + sum(H2_GS_OUT[gs,h] for gs in GasStorages)   ## Should this be changed: H2_GS_OUT -> H2_GS_IN ?
@@ -769,18 +812,18 @@ function build_h2_constraints(dtr::DieterModel)
     );
 =#
     @info "Hydrogen: gas storage mass balance."
-    @constraint(m, GasStorageBalance[(n,gs)=Nodes_GasStorages,h=Hours2],
+    @constraint(dtr.model, GasStorageBalance[(n,gs)=Nodes_GasStorages,h=Hours2],
         H2_GS_L[(n,gs), h] == H2_GS_L[(n,gs), h-1] + H2_GS_IN[(n,gs), h] - H2_GS_OUT[(n,gs), h]
     );
 
     @info "Hydrogen: gas storage balance at first time-steps."
-    @constraint(m, GasStorageBalanceFirstHours[(n,gs)=Nodes_GasStorages],
+    @constraint(dtr.model, GasStorageBalanceFirstHours[(n,gs)=Nodes_GasStorages],
         H2_GS_L[(n,gs), Hours[1]] == StartLevel[n,gs] * N_GS[(n,gs)] + H2_GS_IN[(n,gs),Hours[1]] - H2_GS_OUT[(n,gs),Hours[1]]
     );
 
     # End level equal to initial level
     @info "Hydrogen: gas storage end level equal to initial level."
-    @constraint(m, GasStorageLevelEnd[(n,gs)=Nodes_GasStorages],
+    @constraint(dtr.model, GasStorageLevelEnd[(n,gs)=Nodes_GasStorages],
         H2_GS_L[(n,gs), Hours[end]] == StartLevel[n,gs] * N_GS[(n,gs)]
     );
 
@@ -795,6 +838,9 @@ function build_heat_load_constraints(dtr::DieterModel)
 #    ***** Heat consumption constraints *****
 #    * ----------------------------------------------------------------------- *
     # Sets:
+    Hours = dtr.sets[:Hours]
+    Hours2 = Hours[2:end]
+
     BU = dtr.sets[:BuildingType]  # Building archtypes
     HP = dtr.sets[:HeatingType]   # Heating combination type
 
