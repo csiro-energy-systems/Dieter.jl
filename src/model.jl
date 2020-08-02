@@ -6,20 +6,18 @@
 
 """
 Build the JuMP model describing the optimization problem, specifying the `solver` to use.
-The `timestep` parameter should be 1 for half-hourly steps, 2 for hourly steps,
-and 4 for 2-hourly steps. The data must match the time-steps of the `timestep` parameter.
+The `Timestep` parameter should be 1 for half-hourly steps, 2 for hourly steps,
+and 4 for 2-hourly steps. The data must match the time-steps of the `Timestep` parameter.
 """
-function build_model!(dtr::DieterModel,
-    solver; #::MathOptInterface.AbstractOptimizer;
-    timestep::Int=2)
+function build_model!(dtr::DieterModel)
 
-    dtr.model = Model(solver)
+    dtr.model = Model()
 
     m = dtr.model
 
-    dtr.settings[:timestep] = timestep
+    Timestep = dtr.settings[:timestep]
 
-    periods = round(Int,hoursInYear*(2/timestep))
+    periods = round(Int,hoursInYear*(2/Timestep))
     Hours = Base.OneTo(periods)
     Hours2 = Hours[2:end]
     # time_ratio relates generation levels in one time-step (e.g 1/2-hourly) to energy in MWh on an hourly basis
@@ -890,7 +888,9 @@ function build_heat_load_constraints(dtr::DieterModel)
     return dtr
 end
 
-function solve_model!(dtr::DieterModel)
+function solve_model!(dtr::DieterModel,solver)
+    @info "Setting solver to $(solver)..."
+    set_optimizer(dtr.model, solver)
     @info "Starting optimization..."
     JuMP.optimize!(dtr.model)
 
