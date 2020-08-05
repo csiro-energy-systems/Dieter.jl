@@ -78,13 +78,13 @@ function build_model!(dtr::DieterModel)
     # Mapping set definitions
     Arcs = dtr.sets[:Arcs]
     Arcs_From = dtr.sets[:Arcs_From]
-    Arcs_REZones = dtr.sets[:Arcs_REZones]
+    Arcs_REZones = dtr.sets[:Arcs_REZones]  # Connections between REZones and TxZones
 
     Nodes_Techs = dtr.sets[:Nodes_Techs]
     Nodes_Storages = dtr.sets[:Nodes_Storages]
 
     Nodes_Renew = dtr.sets[:Nodes_Renew]
-    Nodes_Conven = dtr.sets[:Nodes_Conven]
+    # Nodes_Conven = dtr.sets[:Nodes_Conven]
     Nodes_Dispatch = dtr.sets[:Nodes_Dispatch]
     Nodes_NonDispatch = dtr.sets[:Nodes_NonDispatch]
 
@@ -177,7 +177,7 @@ function build_model!(dtr::DieterModel)
                     "Storage_outflow" => "STO_OUT",
                     "Storage_level" => "STO_L",
                     "Technology_capacity" => "N_TECH",
-                    "Renewable_capacity_expand" => "N_RES_EXP",
+                    "Renewable_capacity_expand" => "N_REZ_EXP",
                     "Storage_build_energy" => "N_STO_E",
                     "Storage_capacity" => "N_STO_P",
                     "SynCon_capacity" => "N_SYNC",
@@ -207,16 +207,14 @@ function build_model!(dtr::DieterModel)
             G_UP[Nodes_Dispatch, Hours] , (base_name=shorter["Generation_upshift"], lower_bound=0)  # Units: MWh per time-interval; Generation level change up
             G_DO[Nodes_Dispatch, Hours], (base_name=shorter["Generation_downshift"], lower_bound=0) # Units: MWh per time-interval; Generation level change down
             # G_INF[Nodes, Hours], (base_name=shorter["Generation_infeasible"], lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Energy Balance
+            # CU[Nodes_NonDispatch, Hours], (base_name=shorter["Curtailment_renewables"], lower_bound=0) # Units: MWh per time-interval; Non-dispatchable curtailment
             G_REZ[REZones,Hours], (base_name=shorter["Generation_renewable"], lower_bound=0) # Units: MWh per time-interval; Generation level - renewable energy zone tech. & stor.
             G_TxZ[TxZones,Hours], (base_name=shorter["Generation_transmission_zones"], lower_bound=0) # Units: MWh per time-interval; Generation level - transmission zone tech. & stor.
-            # G_RES[Nodes_Renew, h in HOURS], (base_name=shorter["Generation_renewable"], lower_bound=0) # Units: MWh; Generation level - renewable gen. tech.
-            # CU[Nodes_NonDispatch, Hours], (base_name=shorter["Curtailment_renewables"], lower_bound=0) # Units: MWh per time-interval; Non-dispatchable curtailment
             STO_IN[Nodes_Storages, Hours], (base_name=shorter["Storage_inflow"], lower_bound=0) # Units: MWh per time-interval; Storage energy inflow
             STO_OUT[Nodes_Storages, Hours], (base_name=shorter["Storage_outflow"], lower_bound=0) # Units: MWh per time-interval; Storage energy outflow
             STO_L[Nodes_Storages, Hours], (base_name=shorter["Storage_level"], lower_bound=0) # Units: MWh at a given time-interval; Storage energy level
             N_TECH[Nodes_Techs], (base_name=shorter["Technology_capacity"], lower_bound=0) # Units: MW; Technology capacity built
-            N_RES_EXP[REZones], (base_name=shorter["Renewable_capacity_expand"], lower_bound=0) # Units: MW; Renewable technology transmission capacity built
-            # N_RES[Nodes_Renew], (base_name=shorter["Renewable_capacity"], lower_bound=0) # Units: MW; Renewable technology capacity built
+            N_REZ_EXP[REZones], (base_name=shorter["Renewable_capacity_expand"], lower_bound=0) # Units: MW; Renewable technology transmission capacity built
             N_STO_E[Nodes_Storages], (base_name=shorter["Storage_build_energy"], lower_bound=0) # Units: MWh; Storage energy technology built
             N_STO_P[Nodes_Storages], (base_name=shorter["Storage_capacity"], lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
             N_SYNC[DemandRegions], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MWs; synchronous condenser capacity (in MW x seconds) for each demand region
@@ -283,7 +281,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(FixedCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(FixedCost[n,sto] * 0.5*(N_STO_P[(n,sto)] + N_STO_E[(n,sto)]) for (n,sto) in Nodes_Storages)
 
-            + sum(InvestmentCostREZ_Exp[rez,txz] * N_RES_EXP[rez] for (rez,txz) in keys(InvestmentCostREZ_Exp) )
+            + sum(InvestmentCostREZ_Exp[rez,txz] * N_REZ_EXP[rez] for (rez,txz) in keys(InvestmentCostREZ_Exp) )
             + sum(InvestmentCostTransExp[from,to] * N_IC_EXP[(from,to)] for (from,to) in Arcs)
 
             + sum(InvestmentCost[n,p2g] * N_P2G[(n,p2g)] for (n,p2g) in Nodes_P2G)
@@ -317,8 +315,8 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     # The implicit design assumption of this constraint is that DemandRegions are directly related to the Dispatch region level.
     # We may overcome this with nested sums from lower levels.
-    # In particular, G for NonDispatchable aggregates generation from Renewables via other constraints
-    # while G for Dispatchable aggregates from Transmission regions.
+    # In particular, G_REZ is an aggregating variable for generation from Renewables and used directly in other constraints
+    # while G_TxZ aggregates Dispatchable generation from Transmission regions.
 
     @info "Definition of REZone generation book-keeping variables"
     @constraint(m, REZoneGen[rez=REZones,h=Hours],
@@ -424,12 +422,12 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @info "Renewable energy zone build limits."
     @constraint(m, REZBuildLimits[rez=REZones],
         sum(N_TECH[(z,t)] for (z,t) in Nodes_Techs if (z == rez && !occursin(r"Hydro_",t))) ## TODO: remove this hard-coding!
-            <= TotalBuildCap[rez] + N_RES_EXP[rez]
+            <= TotalBuildCap[rez] + N_REZ_EXP[rez]
     );
 
     @info "Renewable energy zone expansion limits."
     @constraint(m, REZExpansionBound[rez=REZones],
-        N_RES_EXP[rez] <= ExpansionLimit[rez]
+        N_REZ_EXP[rez] <= ExpansionLimit[rez]
     );
 
     next!(prog)
@@ -644,24 +642,6 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     next!(prog)
     println("\n")
-
-    if dtr.settings[:ev_flag] # == true
-        build_ev_constraints(dtr)
-        next!(prog)
-        println("\n")
-    end
-    
-    if dtr.settings[:h2_flag]
-        build_h2_constraints(dtr)
-        next!(prog)
-        println("\n")
-    end
-
-    if dtr.settings[:heat_flag]
-        build_heat_load_constraints(dtr)
-        next!(prog)
-        println("\n")
-    end
 
     return dtr
 end
@@ -915,7 +895,7 @@ function generate_results!(dtr::DieterModel)
         :N_TECH => [:Nodes_Techs],
         :N_STO_E => [:Nodes_Storages],
         :N_STO_P => [:Nodes_Storages],
-        :N_RES_EXP => [:REZones],
+        :N_REZ_EXP => [:REZones],
         :N_SYNC => [:DemandRegion],
         :FLOW => [:Arcs,:Hours],
         :N_IC_EXP => [:Arcs],

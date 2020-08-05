@@ -383,7 +383,8 @@ function parse_set_relations!(dtr)
     # Obtain the Renewable Energy Zones
     # dtr.sets[:REZones] = [x[1] for x in filter(x -> (x[2]=="REZone"),dtr.sets[:Nodes_Types])]
 
-    # Relation between a node and associated type above (its promotion)
+    # Relation between a node and associated node above it (its "promotion") if that is also a Node
+    # Typically, creates a relation of REZone Nodes to the connected TxZone.
     rel_node_promote = dtr.data["relations"]["rel_node_promote"]
     dtr.sets[:Nodes_Promotes] = tuple2_filter(rel_node_promote, Nodes, Nodes)
 
