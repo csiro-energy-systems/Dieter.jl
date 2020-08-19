@@ -161,7 +161,7 @@ function build_model!(dtr::DieterModel)
 
     @info "Start of model building:"
 
-    prog = Progress(7, dt=0.01, desc="Building Model...         \n", barlen=30)
+    prog = Progress(4, dt=0.01, desc="Building Model...         \n", barlen=30)
 
 # %% * ----------------------------------------------------------------------- *
 #    ***** Variable definitions *****
@@ -452,7 +452,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @info "Minimum inertia threshold levels"
     @constraint(m, InertiaNormalThreshold[dr=DemandRegions, h=Hours],
           N_SYNC[dr] +
-          sum(InertialSecs[t]*G[(n,t),h]/time_ratio
+          sum(InertialSecs[t]*N_TECH[(n,t)]
                 for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
                 >= InertiaMinThreshold[dr]*RequireRatio[dr]
     );
@@ -460,12 +460,29 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @info "Secure inertia requirement levels"
     @constraint(m, InertiaSecureRequirement[dr=DemandRegions, h=Hours],
           N_SYNC[dr] +
-          sum(InertialSecs[t]*G[(n,t),h]/time_ratio
+          sum(InertialSecs[t]*N_TECH[(n,t)]
                 for (n,t) in Nodes_Techs if node2DemReg[n] == dr)
         + sum(InertialSecsSto[n,sto]*N_STO_P[(n,sto)]
                 for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
                 >= InertiaMinSecure[dr]*RequireRatio[dr]
     );
+
+    # @info "System strength: zone fault contributions"  # FS - "fault strength"
+    # @constraint(m, SystemStrengthContrib[zone=DemandZones, h=Hours],
+    #     FS_TxZ[zone,h] = sum(ShortCircuitMultiplier[n,t]*G[(n,t),h]
+    #         for (n,t) in Nodes_Techs if n == zone )
+    #   + sum(ShortCircuitMultiplier[n,t]*N_STO_P[(n,t)]
+    #         for (n,sto) in Nodes_Storages in n == zone)
+    # );
+
+    # @info "System strength: system fault requirement"
+    # @constraint(m, SystemStrengthFaultReq[zone=DemandZones, h=Hours],
+    #     FS_TxZ[zone,h] + 
+    #     sum(Derating[zoneAdj]*FS_TxZ[zoneAdj,h]
+    #         for (from,to) in Arcs if ( (from == zone) && (to == zoneAdj) ))
+    #     >= FaultReqMinimum[zone]
+    # );
+        
 #=
     @info "Carbon budget upper limit (annual)"
     @constraint(m, CarbonBudgetLimit,
