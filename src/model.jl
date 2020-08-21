@@ -510,10 +510,6 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         sum(
            sum(G[(z,t),h] for (z,t) in Nodes_Renew if z == zone)  # Any renewable TxZone-level tech.
          + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
-
-         + sum(H2_G2P[(z,g2p),h] for (z,g2p) in Nodes_G2P if z == zone)
-         - sum(H2_P2G[(z,p2g),h] for (z,p2g) in Nodes_P2G if z == zone)
-
         for (zone, d) in Nodes_Demand if node2DemReg[d] == n
         for h in Hours
         )
@@ -522,12 +518,6 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             sum(
                sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
              + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
-
-             + sum(STO_OUT[(z,sto),h] - STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
-
-             + sum(H2_G2P[(z,g2p),h] for (z,g2p) in Nodes_G2P if z == zone)
-             - sum(H2_P2G[(z,p2g),h] for (z,p2g) in Nodes_P2G if z == zone)
-
             for (zone, d) in Nodes_Demand if node2DemReg[d] == n
             for h in Hours
          )
@@ -536,6 +526,12 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     # Note: if there is NO renewable energy associated to the DemandRegion, then this constraint will
     # act to zero out ALL generation associated to the DemandRegion.
 
+            #  + sum(STO_OUT[(z,sto),h] - STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
+
+            #  + sum(H2_G2P[(z,g2p),h] for (z,g2p) in Nodes_G2P if z == zone)
+            #  - sum(H2_P2G[(z,p2g),h] for (z,p2g) in Nodes_P2G if z == zone)
+
+
     #  Minimum yearly renewables requirement for whole of system.
     @info "Minimum yearly renewables requirement for whole of system."
     @constraint(m, MinRESsystem,
@@ -543,28 +539,16 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             sum(
                 sum(G[(z,t),h] for (z,t) in Nodes_Renew if z == zone)  # Any renewable TxZone-level tech.
                 + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
-
-                + sum(H2_G2P[(z,g2p),h] for (z,g2p) in Nodes_G2P if z == zone)
-                - sum(H2_P2G[(z,p2g),h] for (z,p2g) in Nodes_P2G if z == zone)
-
                 for (zone, d) in Nodes_Demand if node2DemReg[d] == n
-                for h in Hours
-            )
+            for h in Hours)
         for n in DemandRegions)
             >=
             (MinimumRenewShare/100)*sum(
                 sum(
                     sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
                     + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
-
-                    + sum(STO_OUT[(z,sto),h] - STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
-
-                    + sum(H2_G2P[(z,g2p),h] for (z,g2p) in Nodes_G2P if z == zone)
-                    - sum(H2_P2G[(z,p2g),h] for (z,p2g) in Nodes_P2G if z == zone)
-
                     for (zone, d) in Nodes_Demand if node2DemReg[d] == n
-                    for h in Hours
-                )
+                for h in Hours)
             for n in DemandRegions)
     );
 
