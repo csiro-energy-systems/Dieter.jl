@@ -328,10 +328,10 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @info "Definition of TxZone generation book-keeping variables"
     @constraint(m, TxZoneGen[zone=TxZones,h=Hours],
         G_TxZ[zone,h] ==
-           sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
-        + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
-        + sum(STO_OUT[(z,sto),h] - STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
-        - sum(FLOW[(from,to),h] for (from,to) in Arcs if from == zone)
+            sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
+         +  sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+         +  sum(STO_OUT[(z,sto),h] - STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
+         -  sum(FLOW[(from,to),h] for (from,to) in Arcs if from == zone)
     );
 
 # # TODO : An explicit assumption in EnergyBalance is that H2_G2P and H2_P2G are
@@ -340,20 +340,14 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     # Energy balance at each demand node:
     @info "Energy balance at each demand node."
     @constraint(m, EnergyBalance[n=DemandZones,h=Hours],
-      # sum(G[(p,t),h] for (p,t) in Nodes_Techs if p == n)
-
       sum(G_TxZ[zone,h] for (zone, d) in Nodes_Demand if d == n)
-        # + sum(STO_OUT[(q,sto),h] for (q,sto) in Nodes_Storages if q == n)
-        + sum(EV_DISCHARGE[ev,h] for ev in EV)
-        + sum(H2_G2P[(n,g2p),h] for (n,g2p) in Nodes_G2P)
+        # + sum(EV_DISCHARGE[ev,h] for ev in EV)
+        + sum(H2_G2P[(zone,g2p),h] for (zone,g2p) in Nodes_G2P if zone == n)
         ==
       Load[n,h]
-        # = sum(Load[a,h] for (a,b) in Nodes_Demand if b == n)
-        # + sum(STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == n)
-        + sum(EV_CHARGE[ev,h] for ev in EV)
-        + sum(H2_P2G[(n,p2g),h] for (n,p2g) in Nodes_P2G)
-        + sum(HEAT_HP_IN[bu,hp,h] for bu in BU for hp in HP)
-
+        # + sum(EV_CHARGE[ev,h] for ev in EV)
+        + sum(H2_P2G[(zone,p2g),h] for (zone,p2g) in Nodes_P2G if zone == n)
+        # + sum(HEAT_HP_IN[bu,hp,h] for bu in BU for hp in HP)
     );
 
     # Energy flow reflexive constraint:
