@@ -113,7 +113,7 @@ function build_model!(dtr::DieterModel)
 
     # Parameter definitions
 
-    MarginalCost = dtr.parameters[:MarginalCost] # Units: currency/MWh; Marginal cost per unit of generated energy
+    MarginalCost = dtr.parameters[:MarginalCost] # Units: currency/MWh; Marginal (variable) cost per unit of generated energy
     InvestmentCost = dtr.parameters[:InvestmentCost] # Units: currency/MW; Investment cost per unit of generation power capacity
     InvestmentCostPower = dtr.parameters[:InvestmentCostPower] # Units: currency/MW; Annualised investment cost per unit of storage power capacity
     InvestmentCostEnergy = dtr.parameters[:InvestmentCostEnergy] # Units: currency/MWh; Annualised investment cost per unit of storage energy capacity
@@ -141,7 +141,7 @@ function build_model!(dtr::DieterModel)
     # SolarLimit = dtr.parameters[:SolarLimit]
     TotalBuildCap = dtr.parameters[:TotalBuildCap]
 
-    ExpansionLimit = dtr.parameters[:ExpansionLimit]
+    ExpansionLimit_REZ = dtr.parameters[:ExpansionLimit]
     ExpansionLimit_Tx = dtr.parameters[:ExpansionLimit_Tx]
     TransferCapacity = dtr.parameters[:TransferCapacity] # Units: MW; Interconnector power transfer capability
 
@@ -421,7 +421,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     @info "Renewable energy zone expansion limits."
     @constraint(m, REZExpansionBound[rez=REZones],
-        N_REZ_EXP[rez] <= ExpansionLimit[rez]
+        N_REZ_EXP[rez] <= ExpansionLimit_REZ[rez]
     );
 
     next!(prog)

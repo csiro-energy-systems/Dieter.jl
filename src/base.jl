@@ -475,11 +475,11 @@ function calc_mc!(dtr::DieterModel)
     # Technologies = dtr.sets[:Technologies]
     # Storages = dtr.sets[:Storages]
 
-    fc = dtr.parameters[:FuelCost]
-    eff = dtr.parameters[:Efficiency]
-    cc = dtr.parameters[:CarbonContent]
-    co2 = dtr.settings[:co2]  # Price on carbon in currency/t-CO2
-    vc = dtr.parameters[:VariableCost]
+    fc = dtr.parameters[:FuelCost]      # FuelCost in currency/MWh-thermal-input
+    eff = dtr.parameters[:Efficiency]   # Efficiency is unitless (MWh-output/MWh-thermal-input)
+    cc = dtr.parameters[:CarbonContent] # CarbonContent in units of t-CO2/MWh-thermal-input
+    co2 = dtr.settings[:co2]            # Price on carbon in currency/t-CO2
+    vc = dtr.parameters[:VariableCost]  # VariableCost in currency/MWh-output
 
     marginalcost = Dict((n,t) => fc[n,t]/eff[n,t] + (cc[n,t]*co2)/eff[n,t] + vc[n,t] for (n,t) in Nodes_Techs)
     update_dict!(dtr.parameters, :MarginalCost, marginalcost)
