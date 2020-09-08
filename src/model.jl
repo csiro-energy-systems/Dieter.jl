@@ -91,6 +91,11 @@ function build_model!(dtr::DieterModel)
     # Subset of Nodes_Techs with availability traces
     Nodes_Avail_Techs = dtr.sets[:Nodes_Avail_Techs]
 
+    # Test (TODO - relocate elsewhere):
+    if !isempty(intersect(Nodes_Dispatch,Nodes_Avail_Techs))
+        @warn "The sets Nodes_Dispatch and Nodes_Avail_Techs are not disjoint, and are required to be for correctness."
+    end
+
     Nodes_Types = dtr.sets[:Nodes_Types]
     Nodes_Promotes = dtr.sets[:Nodes_Promotes]
 
@@ -118,7 +123,8 @@ function build_model!(dtr::DieterModel)
     InvestmentCostPower = dtr.parameters[:InvestmentCostPower] # Units: currency/MW; Annualised investment cost per unit of storage power capacity
     InvestmentCostEnergy = dtr.parameters[:InvestmentCostEnergy] # Units: currency/MWh; Annualised investment cost per unit of storage energy capacity
     FixedCost = dtr.parameters[:FixedCost] # Units: currency/MW; Fixed cost per unit of power capacity
-    Availability = dtr.parameters[:Availability] # Units: MWh; Available energy from renewables as fraction of installed capacity within a time-interval
+    Availability = dtr.parameters[:Availability] # Units: none; Available energy from renewables as fraction in [0,1] of installed capacity within a time-interval
+    CapacityDerating = dtr.parameters[:CapacityDerating] # Units: Reduction in nominal capacity as fraction in [0,1] of installed capacity within a time-interval
     MaxCapacity = dtr.parameters[:MaxCapacity] # Units: MW; Maximum installable capacity - power
     MaxEnergy = dtr.parameters[:MaxEnergy] # Units: MWh; Maximum installable storage capacity energy
     MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio] # Units: hours; Maximum ratio of stored energy to power delivery
@@ -135,6 +141,7 @@ function build_model!(dtr::DieterModel)
     RequireRatio = dtr.parameters[:RequireRatio]
     SynConCapCost = dtr.parameters[:SynConCapCost]
 
+    OperatingReserve = dtr.parameters[:OperatingReserve] # Units: MW; Regional operating reserve requirement (e.g. within state)
     MinStableGen = dtr.parameters[:MinStableGen] # Units: [0,1]; Minimum stable operational level for generation as fraction of Capacity in MW.
 
     # WindLimit = dtr.parameters[:WindLimit]
@@ -152,6 +159,7 @@ function build_model!(dtr::DieterModel)
     InvestmentCostREZ_Exp = filter(x -> !ismissing(x[2]) && x[1] in Arcs_REZones, dtr.parameters[:InvestmentCostTransExp])
 
     Load = dtr.parameters[:Load] # Units: MWh per time-interval; wholesale energy demand within a time-interval (e.g. hourly or 1/2-hourly)
+    NegOpDemand = dtr.parameters[:NegOpDemand] # Units: MWh per time-interval; wholesale energy produced from behind-the-meter generation (e.g. PV or EV)
 
     CurtailmentCost = dtr.settings[:cu_cost] # Units: currency/MWh; Cost per unit of generated energy that is curtailed
 
@@ -338,12 +346,13 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 # indexed over DemandZones; we should add additional checks to verify this holds.
 
     # Energy balance at each demand node:
-    @info "Energy balance at each demand node."
+    @info "Energy balance at each demand node: supply equals or exceeds demand."
     @constraint(m, EnergyBalance[n=DemandZones,h=Hours],
       sum(G_TxZ[zone,h] for (zone, d) in Nodes_Demand if d == n)
         # + sum(EV_DISCHARGE[ev,h] for ev in EV)
         + sum(H2_G2P[(zone,g2p),h] for (zone,g2p) in Nodes_G2P if zone == n)
-        ==
+        - sum(NegOpDemand[zone,hour] for (zone,hour) in keys(NegOpDemand) if (zone == n && hour == h))
+        >=
       Load[n,h]
         # + sum(EV_CHARGE[ev,h] for ev in EV)
         + sum(H2_P2G[(zone,p2g),h] for (zone,p2g) in Nodes_P2G if zone == n)
@@ -389,7 +398,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     # Variable upper bound on dispatchable generation by capacity
     @info "Variable upper bound on dispatchable generation by capacity."
     @constraint(m, MaxGenerationDisp[(n,t)=Nodes_Dispatch,h=Hours],
-        G[(n,t),h] <= time_ratio * N_TECH[(n,t)]
+        G[(n,t),h] <= CapacityDerating[n,t,h] * time_ratio * N_TECH[(n,t)]
     );
 
     @info "Variable upper bound on non-dispatchable generation by capacity."
@@ -431,22 +440,36 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 #    ***** Operational conditions and constraints *****
 #    * ----------------------------------------------------------------------- *
 
+    # Operating reserves
+    @info "Operating reserve margin"
+    @constraint(m, OperatingReserve[dr=DemandRegions, h=Hours],
+        sum( CapacityDerating[n,t,h] * time_ratio * N_TECH[(n,t)] - G[(n,t),h]
+            for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
+      + sum( Availability[n,t,h] * time_ratio * N_TECH[(n,t)] - G[(n,t),h]
+            for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr)  # or replace `Nodes_Avail_Techs` with `setdiff(Nodes_Avail_Techs,Nodes_Dispatch)`
+      + sum( sqrt(Efficiency[n,sto])*STO_L[(n,sto), h]
+            for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
+      >= time_ratio * OperatingReserve[dr]
+    );
+
     # Minimum stable generation levels (for inflexible technologies)
 
     if !(isempty(keys(MinStableGen)))
         @info "Minimum stable generation levels"
         @constraint(m, MinStableGeneration[(n,t)=keys(MinStableGen), h=Hours; !(MinStableGen[n,t] |> ismissing)],
-            G[(n,t),h] >= MinStableGen[n,t]*time_ratio*N_TECH[(n,t)]
+            G[(n,t),h] >= MinStableGen[n,t] * CapacityDerating[n,t,h] * time_ratio * N_TECH[(n,t)]
         );
         ## Average generation version:
         # @constraint(m, MinStableGeneration[(n,t)=Nodes_Techs; !(MinStableGen[n,t] |> ismissing)],
             # sum(G[(n,t),h] for h in Hours) >= MinStableGen[n,t]*length(Hours) )
     end
 
+    # Inertia requirements
+
     @info "Minimum inertia threshold levels"
     @constraint(m, InertiaNormalThreshold[dr=DemandRegions, h=Hours],
           N_SYNC[dr] +
-          sum(InertialSecs[t]*N_TECH[(n,t)]
+          sum(InertialSecs[t] * CapacityDerating[n,t,h] * N_TECH[(n,t)]
                 for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
                 >= InertiaMinThreshold[dr]*RequireRatio[dr]
     );
@@ -454,9 +477,11 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @info "Secure inertia requirement levels"
     @constraint(m, InertiaSecureRequirement[dr=DemandRegions, h=Hours],
           N_SYNC[dr] +
-          sum(InertialSecs[t]*N_TECH[(n,t)]
-                for (n,t) in Nodes_Techs if node2DemReg[n] == dr)
-        + sum(InertialSecsSto[n,sto]*N_STO_P[(n,sto)]
+          sum(InertialSecs[t] * CapacityDerating[n,t,h] * N_TECH[(n,t)]
+                for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
+          + sum(InertialSecs[t] * Availability[n,t,h] * N_TECH[(n,t)]
+                    for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr) 
+          + sum(InertialSecsSto[n,sto]*N_STO_P[(n,sto)]
                 for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
                 >= InertiaMinSecure[dr]*RequireRatio[dr]
     );
