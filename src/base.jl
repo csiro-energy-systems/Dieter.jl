@@ -125,18 +125,20 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
 
         tech_types = dtr.settings[:tech_types]
 
-        H2ElectrolyserType = tech_types[:H2ElectrolyserType]
+        H2ElectrolyserTypes = tech_types[:H2ElectrolyserTypes]
         H2RecipEngType = tech_types[:H2RecipEngType]
 
-        if H2ElectrolyserType in keys(ScenCostPower)
-            dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
-                    if :H2Technologies == "H2Electrolyser"
-                        :H2OvernightCost = ScenCostPower[H2ElectrolyserType]
+        for h2_electrolyser in H2ElectrolyserTypes
+            if h2_electrolyser in keys(ScenCostPower)
+                dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
+                        if :H2Technologies == "H2Electrolyser"
+                            :H2OvernightCost = ScenCostPower[h2_electrolyser]
+                        end
                     end
-                end
-            @info "H2 Electrolyser cost was overwritten with scenario value."
-        else
-            @warn "H2 Electrolyser cost was _NOT_ overwritten by scenario value"
+                @info "H2 Electrolyser ($(h2_electrolyser)) cost was overwritten with scenario value."
+            else
+                @warn "H2 Electrolyser ($(h2_electrolyser)) cost was _NOT_ overwritten by scenario value"
+            end
         end
 
         if H2RecipEngType in keys(ScenCostPower)
