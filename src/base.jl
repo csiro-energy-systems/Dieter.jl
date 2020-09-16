@@ -126,30 +126,42 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
         tech_types = dtr.settings[:tech_types]
 
         H2ElectrolyserTypes = tech_types[:H2ElectrolyserTypes]
-        H2RecipEngType = tech_types[:H2RecipEngType]
+        H2RecipEngTypes = tech_types[:H2RecipEngTypes]
 
+        ## TODO: make this more dynamically depend on data for Electrolyser types and cost correspondences
         for h2_electrolyser in H2ElectrolyserTypes
             if h2_electrolyser in keys(ScenCostPower)
+                if h2_electrolyser == "N_Electrolyser_PEM"
                 dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
-                        if :H2Technologies == "H2Electrolyser"
+                        if :H2Technologies == "H2Electrolyser_PEM"
                             :H2OvernightCost = ScenCostPower[h2_electrolyser]
                         end
                     end
-                @info "H2 Electrolyser ($(h2_electrolyser)) cost was overwritten with scenario value."
+                end
+                if h2_electrolyser == "N_Electrolyser_AE"
+                dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
+                        if :H2Technologies == "H2Electrolyser_AE"
+                            :H2OvernightCost = ScenCostPower[h2_electrolyser]
+                        end
+                    end
+                end
+                @info "H2 Electrolyser ($(h2_electrolyser)) cost was overwritten with scenario value $(ScenCostPower[h2_electrolyser])."
             else
-                @warn "H2 Electrolyser ($(h2_electrolyser)) cost was _NOT_ overwritten by scenario value"
+                @warn "H2 Electrolyser ($(h2_electrolyser)) cost was NOT overwritten by scenario value"
             end
         end
 
-        if H2RecipEngType in keys(ScenCostPower)
-            dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
-                    if :H2Technologies == "RecipEngH2"
-                        :H2OvernightCost = ScenCostPower[H2RecipEngType]
+        for h2_recip_eng in H2RecipEngTypes
+            if h2_recip_eng in keys(ScenCostPower)
+                dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
+                        if :H2Technologies == "RecipEngH2"
+                            :H2OvernightCost = ScenCostPower[h2_recip_eng]
+                        end
                     end
-                end
-            @info "H2 Reciprocating Engine cost was overwritten with scenario value."
-        else
-            @warn "H2 Reciprocating Engine cost was _NOT_ overwritten by scenario value"
+                @info "H2 Reciprocating Engine ($(h2_recip_eng)) cost was overwritten with scenario value."
+            else
+                @warn "H2 Reciprocating Engine cost was _NOT_ overwritten by scenario value"
+            end
         end
 
         parse_h2_technologies!(dtr, dfDict["h2_technologies"])

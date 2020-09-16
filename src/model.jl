@@ -433,6 +433,11 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         N_REZ_EXP[rez] <= ExpansionLimit_REZ[rez]
     );
 
+    # @info "Renewable energy zone expansion linking to transmission expansion."
+    # @constraint(m, REZ_Tx_ExpansionBound[rez=REZones,(from,to)=Arcs; from in Arcs_From, (rez,from,to) in REZ_Tx_Link],
+    #     N_REZ_EXP[rez] >= N_IC_EXP[(from,to)]/0.75
+    # );
+
     next!(prog)
     println("\n")
 
@@ -747,6 +752,8 @@ function build_h2_constraints(dtr::DieterModel)
     Hours = dtr.sets[:Hours]
     Hours2 = Hours[2:end]
 
+    HoursToMonths = dtr.parameters[:HoursToMonths]
+
     Nodes_P2G = dtr.sets[:Nodes_P2G]
     Nodes_G2P = dtr.sets[:Nodes_G2P]
     Nodes_GasStorages = dtr.sets[:Nodes_GasStorages]
@@ -757,6 +764,8 @@ function build_h2_constraints(dtr::DieterModel)
     H2Conversion = dtr.parameters[:H2Conversion]  # Units: MWh / tonne-H2 for a given P2G tech.
     # H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
     H2Demand = dtr.parameters[:H2Demand] # Units: MWh / year for a given Node and P2G tech.
+
+    Capacity_Factor_AE_Hourly = dtr.settings[:capacity_factor_ae] # e.g 0.8 means must produce at least 80% of hourly quota each hour.
 
     # Variables:
     H2_P2G = dtr.model.obj_dict[:H2_P2G]
@@ -771,6 +780,17 @@ function build_h2_constraints(dtr::DieterModel)
     @info "Hydrogen: Minimum yearly lower bound on power-to-gas."
     @constraint(dtr.model, MinYearlyP2G[(n,p2g)=Nodes_P2G],
         sum(H2_P2G[(n,p2g),h] for h in Hours) >= H2Demand[n,p2g]
+    );
+
+    @info "Hydrogen: Minimum monthly lower bound on power-to-gas for PEM tech."
+    @constraint(dtr.model, MinMonthlyP2G_PEM[(n,p2g)=Nodes_P2G, month=1:12; p2g == "H2Electrolyser_PEM"],
+        sum(H2_P2G[(n,p2g),h] for h in Hours if HoursToMonths[h] == month)
+            >= (H2Demand[n,p2g]/hoursInYear)*sum(1 for h in Hours if HoursToMonths[h] == month)
+    );
+
+    @info "Hydrogen: Constant hourly lower bound on power-to-gas for AE tech."
+    @constraint(dtr.model, MinMonthlyP2G_AE[(n,p2g)=Nodes_P2G, h=Hours; p2g == "H2Electrolyser_AE"],
+        H2_P2G[(n,p2g),h] >= Capacity_Factor_AE_Hourly*(H2Demand[n,p2g]/hoursInYear)
     );
 
     @info "Hydrogen: Variable upper bound on power-to-gas."
