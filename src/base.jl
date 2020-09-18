@@ -188,7 +188,7 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
 end
 
 #   e.g.  df = dfDict["nodes"]
-# Columns: | Nodes │ NodeType │ NodePromote │ DemandRegion | IncludeFlag |
+# Columns: | Nodes │ NodeType │ NodePromote │ DemandRegion | IncludeLevel |
 # Expected that NodeType has (at least) entries including ["TxZone", "REZone"]
 function parse_nodes!(dtr::DieterModel, df::DataFrame)
 
@@ -207,6 +207,9 @@ function parse_nodes!(dtr::DieterModel, df::DataFrame)
 
     # Provide a dict (lookup map) between nodes and the associated demand region
     dtr.parameters[:node_demreg_dict] = Dict(zip(df[!,:Nodes],df[!,:DemandRegion]))
+
+    # Provide a dict (lookup map) between nodes and the associated "IncludeLevel", a relative measure of cost increase:
+    dtr.parameters[:include_level_dict] = Dict(zip(df[!,:Nodes],df[!,:IncludeLevel]))
 
     return nothing
 end
@@ -336,10 +339,10 @@ function initialise_set_relation_data!(dtr)
     # rel_node_storages = filter(x->f_node_storages(x[1],x[2]),[(n,s) for n in N for s in S])
 
     # Relation between a node and associated type
-    rel_node_type = create_relation(dfDict["nodes"],:Nodes,:NodeType,:IncludeFlag)
+    rel_node_type = create_relation(dfDict["nodes"],:Nodes,:NodeType,:IncludeLevel)
 
     # Relation between a node and associated type above (its promotion)
-    rel_node_promote = create_relation(dfDict["nodes"],:Nodes,:NodePromote,:IncludeFlag)
+    rel_node_promote = create_relation(dfDict["nodes"],:Nodes,:NodePromote,:IncludeLevel)
 
     # Relation between a node and demand
     rel_node_demand = create_relation(dfDict["map_node_demand"],:Nodes,:DemandZone,:IncludeFlag)
