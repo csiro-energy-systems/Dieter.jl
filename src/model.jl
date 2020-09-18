@@ -748,6 +748,9 @@ function build_h2_constraints(dtr::DieterModel)
 #    ***** Hydrogen constraints *****
 #    * ----------------------------------------------------------------------- *
 
+    Timestep = dtr.settings[:timestep]
+    periods = round(Int,hoursInYear*(2/Timestep))
+
     # Sets:
     Hours = dtr.sets[:Hours]
     Hours2 = Hours[2:end]
@@ -755,6 +758,9 @@ function build_h2_constraints(dtr::DieterModel)
     HoursToMonths = dtr.parameters[:HoursToMonths]
 
     Nodes_P2G = dtr.sets[:Nodes_P2G]
+    Nodes_P2G_PEM = dtr.sets[:Nodes_P2G_PEM]
+    Nodes_P2G_AE = dtr.sets[:Nodes_P2G_AE]
+
     Nodes_G2P = dtr.sets[:Nodes_G2P]
     Nodes_GasStorages = dtr.sets[:Nodes_GasStorages]
 
@@ -783,14 +789,14 @@ function build_h2_constraints(dtr::DieterModel)
     );
 
     @info "Hydrogen: Minimum monthly lower bound on power-to-gas for PEM tech."
-    @constraint(dtr.model, MinMonthlyP2G_PEM[(n,p2g)=Nodes_P2G, mth=1:12; p2g == "H2Electrolyser_PEM"],
+    @constraint(dtr.model, MinMonthlyP2G_PEM[(n,p2g)=Nodes_P2G_PEM, mth=1:12],
         sum(H2_P2G[(n,p2g),h] for h in Hours if HoursToMonths[h] == mth)
-            >= (H2Demand[n,p2g]/hoursInYear)*sum(1.0 for h in Hours if HoursToMonths[h] == mth)
+            >= (H2Demand[n,p2g]/periods)*sum(1.0 for h in Hours if HoursToMonths[h] == mth)
     );
 
     @info "Hydrogen: Constant hourly lower bound on power-to-gas for AE tech."
-    @constraint(dtr.model, MinMonthlyP2G_AE[(n,p2g)=Nodes_P2G, h=Hours; p2g == "H2Electrolyser_AE"],
-        H2_P2G[(n,p2g),h] >= Capacity_Factor_AE*(H2Demand[n,p2g]/hoursInYear)
+    @constraint(dtr.model, MinHourlyP2G_AE[(n,p2g)=Nodes_P2G_AE, h=Hours],
+        H2_P2G[(n,p2g),h] >= Capacity_Factor_AE*(H2Demand[n,p2g]/periods)
     );
 
     @info "Hydrogen: Variable upper bound on power-to-gas."
