@@ -178,6 +178,9 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
         dtr.sets[:Nodes_G2P] = Array([])
         dtr.sets[:Nodes_GasStorages] = Array([])
 
+        dtr.sets[:Nodes_P2G_PEM] = Array([])
+        dtr.sets[:Nodes_P2G_AE]  = Array([])
+
         dtr.parameters[:H2Conversion] = Dict{Any,Any}()
         # for s in []
         #     dtr.parameters[s] = Dict()
