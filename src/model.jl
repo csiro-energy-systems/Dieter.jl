@@ -80,7 +80,8 @@ function build_model!(dtr::DieterModel)
     Arcs_From = dtr.sets[:Arcs_From]
     Arcs_REZones = dtr.sets[:Arcs_REZones]  # Connections between REZones and TxZones
 
-    ArcsREZpair = dtr.parameters[:ArcsREZpair]
+    ArcREZpairing = dtr.parameters[:ArcREZpairing]
+    Arcs_REZ_Pairs = intersect(Arcs,keys(ArcREZpairing))  # Filter pairings by allowed arcs
 
     Nodes_Techs = dtr.sets[:Nodes_Techs]
     Nodes_Storages = dtr.sets[:Nodes_Storages]
@@ -438,15 +439,11 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         N_REZ_EXP[rez] <= ExpansionLimit_REZ[rez]
     );
 
-    # @info "Renewable energy zone expansion link to transmission expansion."
+    @info "Renewable energy zone expansion link to transmission expansion."
     @constraint(m, REZpairExpansion[rez=REZones],
         N_REZ_EXP_TX[rez] == 
-            sum(N_IC_EXP[(from,to)]/0.75 for (from,to) in keys(ArcsREZpair) if ArcsREZpair[(from,to)] == rez)
+            sum(N_IC_EXP[(from,to)]/0.75 for (from,to) in Arcs_REZ_Pairs if ArcREZpairing[(from,to)] == rez)
     );
-
-    # @constraint(m, REZ_Tx_ExpansionBound[rez=REZones,(from,to)=keys(ArcsREZpair)],
-    #     N_REZ_EXP[rez] >= N_IC_EXP[(from,to)]/0.75
-    # );
 
     next!(prog)
     println("\n")
