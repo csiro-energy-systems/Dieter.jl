@@ -80,6 +80,8 @@ function build_model!(dtr::DieterModel)
     Arcs_From = dtr.sets[:Arcs_From]
     Arcs_REZones = dtr.sets[:Arcs_REZones]  # Connections between REZones and TxZones
 
+    ArcsREZpair = dtr.parameters[:ArcsREZpair]
+
     Nodes_Techs = dtr.sets[:Nodes_Techs]
     Nodes_Storages = dtr.sets[:Nodes_Storages]
 
@@ -186,6 +188,7 @@ function build_model!(dtr::DieterModel)
                     "Storage_level" => "STO_L",
                     "Technology_capacity" => "N_TECH",
                     "Renewable_capacity_expand" => "N_REZ_EXP",
+                    "REZ_expand_by_transmission" => "N_REZ_EXP_TX",
                     "Storage_build_energy" => "N_STO_E",
                     "Storage_capacity" => "N_STO_P",
                     "SynCon_capacity" => "N_SYNC",
@@ -223,6 +226,7 @@ function build_model!(dtr::DieterModel)
             STO_L[Nodes_Storages, Hours], (base_name=shorter["Storage_level"], lower_bound=0) # Units: MWh at a given time-interval; Storage energy level
             N_TECH[Nodes_Techs], (base_name=shorter["Technology_capacity"], lower_bound=0) # Units: MW; Technology capacity built
             N_REZ_EXP[REZones], (base_name=shorter["Renewable_capacity_expand"], lower_bound=0) # Units: MW; Renewable technology transmission capacity built
+            N_REZ_EXP_TX[REZones], (base_name=shorter["REZ_expand_by_transmission"], lower_bound=0) # Units: MW; Free REZ transmission capacity built when tranmission network is expanded
             N_STO_E[Nodes_Storages], (base_name=shorter["Storage_build_energy"], lower_bound=0) # Units: MWh; Storage energy technology built
             N_STO_P[Nodes_Storages], (base_name=shorter["Storage_capacity"], lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
             N_SYNC[DemandRegions], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MWs; synchronous condenser capacity (in MW x seconds) for each demand region
@@ -371,6 +375,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         FLOW[(from,to),h] <= time_ratio * ( TransferCapacity[(from,to)] + N_IC_EXP[(from,to)] )
     );
 
+    @info "Transmission expansion upper bounds."
     @constraint(m, FlowExpandUpperBound[(from,to)=Arcs],
         N_IC_EXP[(from,to)] <= ExpansionLimit_Tx[(from,to)]
     );
@@ -425,7 +430,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @info "Renewable energy zone build limits."
     @constraint(m, REZBuildLimits[rez=REZones],
         sum(N_TECH[(z,t)] for (z,t) in Nodes_Techs if (z == rez && !occursin(r"Hydro_",t))) ## TODO: remove this hard-coding!
-            <= TotalBuildCap[rez] + N_REZ_EXP[rez]
+            <= TotalBuildCap[rez] +  N_REZ_EXP_TX[rez] + N_REZ_EXP[rez]
     );
 
     @info "Renewable energy zone expansion limits."
@@ -433,8 +438,13 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
         N_REZ_EXP[rez] <= ExpansionLimit_REZ[rez]
     );
 
-    # @info "Renewable energy zone expansion linking to transmission expansion."
-    # @constraint(m, REZ_Tx_ExpansionBound[rez=REZones,(from,to)=Arcs; from in Arcs_From, (rez,from,to) in REZ_Tx_Link],
+    # @info "Renewable energy zone expansion link to transmission expansion."
+    @constraint(m, REZpairExpansion[rez=REZones],
+        N_REZ_EXP_TX[rez] == 
+            sum(N_IC_EXP[(from,to)]/0.75 for (from,to) in keys(ArcsREZpair) if ArcsREZpair[(from,to)] == rez)
+    );
+
+    # @constraint(m, REZ_Tx_ExpansionBound[rez=REZones,(from,to)=keys(ArcsREZpair)],
     #     N_REZ_EXP[rez] >= N_IC_EXP[(from,to)]/0.75
     # );
 
@@ -942,6 +952,7 @@ function generate_results!(dtr::DieterModel)
         :N_STO_E => [:Nodes_Storages],
         :N_STO_P => [:Nodes_Storages],
         :N_REZ_EXP => [:REZones],
+        :N_REZ_EXP_TX => [:REZones],
         :N_SYNC => [:DemandRegion],
         :FLOW => [:Arcs,:Hours],
         :N_IC_EXP => [:Arcs],
