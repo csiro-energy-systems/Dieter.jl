@@ -127,7 +127,8 @@ function build_model!(dtr::DieterModel)
     InvestmentCostEnergy = dtr.parameters[:InvestmentCostEnergy] # Units: currency/MWh; Annualised investment cost per unit of storage energy capacity
     FixedCost = dtr.parameters[:FixedCost] # Units: currency/MW; Fixed cost per unit of power capacity
     Availability = dtr.parameters[:Availability] # Units: none; Available energy from renewables as fraction in [0,1] of installed capacity within a time-interval
-    CapacityDerating = dtr.parameters[:CapacityDerating] # Units: Reduction in nominal capacity as fraction in [0,1] of installed capacity within a time-interval
+    CapacityDerating = dtr.parameters[:CapacityDerating] # Units: [0,1]; Reduction in nominal capacity as fraction in [0,1] of installed capacity within a time-interval
+    PeakContribution = dtr.parameters[:PeakContribution] # Units: [0,1]; Fraction of nominal capacity available from renewable tech. at peak demand.
     MaxCapacity = dtr.parameters[:MaxCapacity] # Units: MW; Maximum installable capacity - power
     MaxEnergy = dtr.parameters[:MaxEnergy] # Units: MWh; Maximum installable storage capacity energy
     MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio] # Units: hours; Maximum ratio of stored energy to power delivery
@@ -457,7 +458,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @constraint(m, OperatingReserve[dr=DemandRegions, h=Hours],
         sum( CapacityDerating[n,t,h] * time_ratio * N_TECH[(n,t)] - G[(n,t),h]
             for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
-      + sum( Availability[n,t,h] * time_ratio * N_TECH[(n,t)] - G[(n,t),h]
+      + sum( PeakContribution[n,t] * time_ratio * N_TECH[(n,t)]
             for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr)  # or replace `Nodes_Avail_Techs` with `setdiff(Nodes_Avail_Techs,Nodes_Dispatch)`
       + sum( sqrt(Efficiency[n,sto])*STO_L[(n,sto), h]
             for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
