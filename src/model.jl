@@ -15,6 +15,8 @@ function build_model!(dtr::DieterModel)
 
     m = dtr.model
 
+    ## Sync. the following with the file "load_names.jl"
+
     Timestep = dtr.settings[:timestep]
 
     periods = round(Int,hoursInYear*(2/Timestep))
@@ -48,32 +50,6 @@ function build_model!(dtr::DieterModel)
     DemandZones = dtr.sets[:DemandZones]
     DemandRegions = dtr.sets[:DemandRegions]
     node2DemReg = dtr.parameters[:node_demreg_dict]
-
-    MinimumRenewShare = dtr.settings[:min_res_system]
-
-    # Transformations on the minimum renewable share settings:
-    min_res_dict = Dict{String,Float64}()
-    if isa(dtr.settings[:min_res],Number)
-        for n in DemandRegions
-            min_res_dict[n] = dtr.settings[:min_res]
-        end
-    elseif isa(dtr.settings[:min_res],Dict)
-        min_res_dict = dtr.settings[:min_res]
-        dtr.settings[:min_res] = minimum(collect(values(min_res_dict)))  # overwrite as a number, the smallest share.
-        println("The `min_res` setting is now equal to $(dtr.settings[:min_res])")
-    else
-        error("The parameter `min_res_dict` is not of type `Number` or `Dict`.")
-    end
-    dtr.settings[:min_res_dict] = min_res_dict
-    @info "The `min_res_dict` setting is currently equal to "
-    @info min_res_dict
-    for (k,v) in min_res_dict
-        if !(0 <= v <= 100)
-            error("The setting in `min_res_dict` of value $v for Demand Region $k is not in the interval [0,100].")
-        elseif (0 < v <= 1)
-            @warn "Note: The setting in `min_res_dict` of value $v for Demand Region $k is a percentage, not necessarily a fraction in the interval (0,1]."
-        end
-    end
 
     # Mapping set definitions
     Arcs = dtr.sets[:Arcs]
@@ -170,6 +146,33 @@ function build_model!(dtr::DieterModel)
     LoadIncreaseCost = dtr.parameters[:LoadIncreaseCost] # Units: $/MW; Load change costs for changing generation upward
     LoadDecreaseCost = dtr.parameters[:LoadDecreaseCost] # Units: $/MW; Load change costs for changing generation downward
 
+    MinimumRenewShare = dtr.settings[:min_res_system]
+
+    ## End of sync. with "load_names.jl"
+
+    # Transformations on the minimum renewable share settings:
+    min_res_dict = Dict{String,Float64}()
+    if isa(dtr.settings[:min_res],Number)
+        for n in DemandRegions
+            min_res_dict[n] = dtr.settings[:min_res]
+        end
+    elseif isa(dtr.settings[:min_res],Dict)
+        min_res_dict = dtr.settings[:min_res]
+        dtr.settings[:min_res] = minimum(collect(values(min_res_dict)))  # overwrite as a number, the smallest share.
+        println("The `min_res` setting is now equal to $(dtr.settings[:min_res])")
+    else
+        error("The parameter `min_res_dict` is not of type `Number` or `Dict`.")
+    end
+    dtr.settings[:min_res_dict] = min_res_dict
+    @info "The `min_res_dict` setting is currently equal to "
+    @info min_res_dict
+    for (k,v) in min_res_dict
+        if !(0 <= v <= 100)
+            error("The setting in `min_res_dict` of value $v for Demand Region $k is not in the interval [0,100].")
+        elseif (0 < v <= 1)
+            @warn "Note: The setting in `min_res_dict` of value $v for Demand Region $k is a percentage, not necessarily a fraction in the interval (0,1]."
+        end
+    end
 
     @info "Start of model building:"
 

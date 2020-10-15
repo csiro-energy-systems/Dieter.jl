@@ -5,7 +5,7 @@
 The `def` macro is used to build other macros that can insert the same block of
 Julia code into different parts of a program.
 This is macro is used to generate a standard set of fields inside a model type
-hierarchy. (Thanks: Original code from InfrastructureModels.jl)
+hierarchy. (Thanks: InfrastructureModels.jl; see http://www.stochasticlifestyle.com/type-dispatch-design-post-object-oriented-programming-julia/)
 """
 macro def(name, definition)
     return quote
