@@ -296,7 +296,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + SynConCapCost["SynConNew"] * sum(N_SYNC[dr] for dr in DemandRegions)
 
             + sum(FixedCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
-            + sum(FixedCost[n,sto] * 0.5*(N_STO_P[(n,sto)] + N_STO_E[(n,sto)]) for (n,sto) in Nodes_Storages)
+            + sum(FixedCost[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages)
 
             + sum(InvestmentCostREZ_Exp[rez,txz] * N_REZ_EXP[rez] for (rez,txz) in keys(InvestmentCostREZ_Exp) )
             + sum(InvestmentCostTransExp[from,to] * N_IC_EXP[(from,to)] for (from,to) in Arcs)
