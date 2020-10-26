@@ -132,11 +132,8 @@ function build_model!(dtr::DieterModel)
     ExpansionLimit_Tx = dtr.parameters[:ExpansionLimit_Tx]
     TransferCapacity = dtr.parameters[:TransferCapacity] # Units: MW; Interconnector power transfer capability
 
-    # REZoneExpCost = dtr.parameters[:REZoneExpansionCost] # Units: currency/MW; REZ connection power transfer expansion cost
-    # TxConnExpCost = dtr.parameters[:TxZoneExpansionCost] # Units: currency/MW; Interconnector power transfer expansion cost
-
-    InvestmentCostTransExp = filter(x -> !ismissing(x[2]), dtr.parameters[:InvestmentCostTransExp])
-    InvestmentCostREZ_Exp = filter(x -> !ismissing(x[2]) && x[1] in Arcs_REZones, dtr.parameters[:InvestmentCostTransExp])
+    InvestmentCostTransExp = filter(x -> !ismissing(x[2]) && x[1] in Arcs, dtr.parameters[:InvestmentCostTransExp]) # Units:  currency/MW; ; REZ capacity expansion costs, amortised to year
+    InvestmentCostREZ_Exp  = filter(x -> !ismissing(x[2]) && x[1] in Arcs_REZones, dtr.parameters[:InvestmentCostTransExp]) # Units:  currency/MW; ; Transmission interconnector capacity expansion costs, amortised to year
 
     Load = dtr.parameters[:Load] # Units: MWh per time-interval; wholesale energy demand within a time-interval (e.g. hourly or 1/2-hourly)
     NegOpDemand = dtr.parameters[:NegOpDemand] # Units: MWh per time-interval; wholesale energy produced from behind-the-meter generation (e.g. PV or EV)
