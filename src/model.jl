@@ -143,6 +143,9 @@ function build_model!(dtr::DieterModel)
     LoadIncreaseCost = dtr.parameters[:LoadIncreaseCost] # Units: $/MW; Load change costs for changing generation upward
     LoadDecreaseCost = dtr.parameters[:LoadDecreaseCost] # Units: $/MW; Load change costs for changing generation downward
 
+    MaxRampUpPerHour = dtr.parameters[:MaxRampUpPerHour]      # Units MW/h; Maximum ramping up of technology
+    MaxRampDownPerHour = dtr.parameters[:MaxRampDownPerHour]  # Units MW/h; Maximum ramping down of technology
+
     MinimumRenewShare = dtr.settings[:min_res_system]
 
     ## End of sync. with "load_names.jl"
@@ -455,6 +458,22 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 #    ***** Operational conditions and constraints *****
 #    * ----------------------------------------------------------------------- *
 
+    # Ramping Limits
+    
+    if !(isDictAllMissing(MaxRampUpPerHour))
+        @info "Maximum ramp up rates"
+        @constraint(m, RampingUpLimits[(n,t)=Nodes_Techs, h=Hours; t in keys(MaxRampUpPerHour) && !(MaxRampUpPerHour[t] |> ismissing)],
+            G_UP[(n,t),h] <= MaxRampUpPerHour[t]
+        );
+    end
+
+    if !(isDictAllMissing(MaxRampDownPerHour))
+        @info "Maximum ramp down rates"
+        @constraint(m, RampingDownLimits[(n,t)=Nodes_Techs, h=Hours; t in keys(MaxRampDownPerHour) && !(MaxRampDownPerHour[t] |> ismissing)],
+             G_DO[(n,t),h] <= MaxRampDownPerHour[t]
+        );
+    end
+
     # Operating reserves
     @info "Operating reserve margin"
     @constraint(m, OperatingReserve[dr=DemandRegions, h=Hours],
@@ -524,12 +543,6 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
                 for (n,t) in Nodes_Techs, h in Hours)
         <= CarbonBudget
     );
-
-    if !(isDictAllMissing(MaxRampRate))
-        @info "Maximum ramp rates"
-        @constraint(m, RampingLimits[(n,t)=Nodes_Techs, h=Hours; !(MaxRampRate[n,t] |> ismissing)],
-            -MaxRampRate[n,t] <= G_UP[(n,t),h] - G_DO[(n,t),h] <= MaxRampRate[n,t]
-    end
 
     next!(prog)
     println("\n")
