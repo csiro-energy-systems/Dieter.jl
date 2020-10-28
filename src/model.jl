@@ -415,10 +415,12 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     );
 
     # Maximum capacity allowed
-    @info "Maximum capacity allowed."
-    @constraint(m, MaxCapacityBound[(n,t)=Nodes_Techs; !(MaxCapacity[n,t] |> ismissing)],
-        N_TECH[(n,t)] <= MaxCapacity[n,t]
-    );
+    if !(isDictAllMissing(MaxCapacity))
+        @info "Maximum capacity allowed."
+        @constraint(m, MaxCapacityBound[(n,t)=Nodes_Techs; !(MaxCapacity[n,t] |> ismissing)],
+            N_TECH[(n,t)] <= MaxCapacity[n,t]
+        );
+    end
 
     # Maximum generated energy allowed.
     if !(isDictAllMissing(MaxEnergy))
@@ -442,8 +444,8 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     @info "Renewable energy zone expansion link to transmission expansion."
     @constraint(m, REZpairExpansion[rez=REZones],
-        N_REZ_EXP_TX[rez] == 
-            sum(N_IC_EXP[(from,to)]/0.75 for (from,to) in Arcs_REZ_Pairs if ArcREZpairing[(from,to)] == rez)
+        N_REZ_EXP_TX[rez] == 0  # NOTE: This constraint is now inactive.
+            # sum(N_IC_EXP[(from,to)]/0.75 for (from,to) in Arcs_REZ_Pairs if ArcREZpairing[(from,to)] == rez)
     );
 
     next!(prog)
