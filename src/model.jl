@@ -435,9 +435,9 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     # Renewable energy zone build limits.
     @info "Renewable energy zone build limits."
-    @constraint(m, REZBuildLimits[rez=REZones],
-        sum(N_TECH[(z,t)] for (z,t) in Nodes_Techs if (z == rez && !occursin(r"Hydro_",t))) ## TODO: remove this hard-coding!
-            <= TotalBuildCap[rez] +  N_REZ_EXP_TX[rez] + N_REZ_EXP[rez]
+    @constraint(m, REZBuildLimits[rez=REZones,h=Hours],
+        sum(G[(z,t),h] for (z,t) in Nodes_Techs if (z == rez && !occursin(r"Hydro_",t))) ## TODO: remove this hard-coding!
+            <= TotalBuildCap[rez] +  N_REZ_EXP[rez] # + N_REZ_EXP_TX[rez]
     );
 
     @info "Renewable energy zone expansion limits."
@@ -463,14 +463,14 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     if !(isDictAllMissing(MaxRampUpPerHour))
         @info "Maximum ramp up rates"
         @constraint(m, RampingUpLimits[(n,t)=Nodes_Techs, h=Hours; t in keys(MaxRampUpPerHour) && !(MaxRampUpPerHour[t] |> ismissing)],
-            G_UP[(n,t),h] <= MaxRampUpPerHour[t]
+            G_UP[(n,t),h] <= time_ratio * MaxRampUpPerHour[t]
         );
     end
 
     if !(isDictAllMissing(MaxRampDownPerHour))
         @info "Maximum ramp down rates"
         @constraint(m, RampingDownLimits[(n,t)=Nodes_Techs, h=Hours; t in keys(MaxRampDownPerHour) && !(MaxRampDownPerHour[t] |> ismissing)],
-             G_DO[(n,t),h] <= MaxRampDownPerHour[t]
+             G_DO[(n,t),h] <= time_ratio * MaxRampDownPerHour[t]
         );
     end
 
