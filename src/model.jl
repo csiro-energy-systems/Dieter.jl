@@ -80,6 +80,8 @@ function build_model!(dtr::DieterModel)
 
     Nodes_Demand = dtr.sets[:Nodes_Demand]
 
+    Nodes_RampingTechs = dtr.sets[:Nodes_RampingTechs]
+
     ## Electric Vehicles
     EV = dtr.sets[:ElectricVehicles]
 
@@ -462,14 +464,14 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     
     if !(isDictAllMissing(MaxRampUpPerHour))
         @info "Maximum ramp up rates"
-        @constraint(m, RampingUpLimits[(n,t)=Nodes_Techs, h=Hours; t in keys(MaxRampUpPerHour) && !(MaxRampUpPerHour[t] |> ismissing)],
+        @constraint(m, RampingUpLimits[(n,t)=Nodes_RampingTechs, h=Hours],
             G_UP[(n,t),h] <= time_ratio * MaxRampUpPerHour[t]
         );
     end
 
     if !(isDictAllMissing(MaxRampDownPerHour))
         @info "Maximum ramp down rates"
-        @constraint(m, RampingDownLimits[(n,t)=Nodes_Techs, h=Hours; t in keys(MaxRampDownPerHour) && !(MaxRampDownPerHour[t] |> ismissing)],
+        @constraint(m, RampingDownLimits[(n,t)=Nodes_RampingTechs, h=Hours],
              G_DO[(n,t),h] <= time_ratio * MaxRampDownPerHour[t]
         );
     end
