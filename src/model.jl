@@ -464,14 +464,14 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     
     if !(isDictAllMissing(MaxRampUpPerHour))
         @info "Maximum ramp up rates"
-        @constraint(m, RampingUpLimits[(n,t)=Nodes_RampingTechs, h=Hours],
+        @constraint(m, RampingUpLimits[(n,t)=Nodes_RampingTechs, h=Hours2],
             G_UP[(n,t),h] <= time_ratio * MaxRampUpPerHour[t]
         );
     end
 
     if !(isDictAllMissing(MaxRampDownPerHour))
         @info "Maximum ramp down rates"
-        @constraint(m, RampingDownLimits[(n,t)=Nodes_RampingTechs, h=Hours],
+        @constraint(m, RampingDownLimits[(n,t)=Nodes_RampingTechs, h=Hours2],
              G_DO[(n,t),h] <= time_ratio * MaxRampDownPerHour[t]
         );
     end
