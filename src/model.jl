@@ -439,7 +439,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @info "Renewable energy zone build limits."
     @constraint(m, REZBuildLimits[rez=REZones,h=Hours],
         sum(G[(z,t),h] for (z,t) in Nodes_Techs if (z == rez && !occursin(r"Hydro_",t))) ## TODO: remove this hard-coding!
-            <= TotalBuildCap[rez] +  N_REZ_EXP[rez] # + N_REZ_EXP_TX[rez]
+            <= time_ratio*(TotalBuildCap[rez] +  N_REZ_EXP[rez]) # + N_REZ_EXP_TX[rez]
     );
 
     @info "Renewable energy zone expansion limits."
