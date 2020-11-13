@@ -80,6 +80,11 @@ function build_model!(dtr::DieterModel)
 
     Nodes_Demand = dtr.sets[:Nodes_Demand]
 
+    Nodes_CoalTechs = dtr.sets[:Nodes_CoalTechs]
+    Nodes_HydroTechs = dtr.sets[:Nodes_HydroTechs]
+    Nodes_NotBaseLoad =  setdiff(Nodes_Dispatch, Nodes_CoalTechs, Nodes_HydroTechs)
+    dtr.sets[:Nodes_NotBaseLoad] = Nodes_NotBaseLoad
+
     Nodes_RampingTechs = dtr.sets[:Nodes_RampingTechs]
 
     ## Electric Vehicles
@@ -199,6 +204,7 @@ function build_model!(dtr::DieterModel)
                     "Storage_build_energy" => "N_STO_E",
                     "Storage_capacity" => "N_STO_P",
                     "SynCon_capacity" => "N_SYNC",
+                    "Inertia_level" => "IN_TxZ",
                     "Internodal_flow" => "FLOW",
                     "Internodal_flow_expansion" => "N_IC_EXP",
                     "H2_power_to_gas" => "H2_P2G",
@@ -226,8 +232,8 @@ function build_model!(dtr::DieterModel)
             G_DO[Nodes_Dispatch, Hours], (base_name=shorter["Generation_downshift"], lower_bound=0) # Units: MWh per time-interval; Generation level change down
             # G_INF[Nodes, Hours], (base_name=shorter["Generation_infeasible"], lower_bound=0) # Units: MWh per time-interval; Infeasibility term for Energy Balance
             # CU[Nodes_NonDispatch, Hours], (base_name=shorter["Curtailment_renewables"], lower_bound=0) # Units: MWh per time-interval; Non-dispatchable curtailment
-            G_REZ[REZones,Hours], (base_name=shorter["Generation_renewable"], lower_bound=0) # Units: MWh per time-interval; Generation level - renewable energy zone tech. & stor.
-            G_TxZ[TxZones,Hours], (base_name=shorter["Generation_transmission_zones"], lower_bound=0) # Units: MWh per time-interval; Generation level - transmission zone tech. & stor.
+            G_REZ[REZones,Hours], (base_name=shorter["Generation_renewable"], lower_bound=0) # Units: MWh per time-interval; Generation level - renewable energy zone tech. & storage
+            G_TxZ[TxZones,Hours], (base_name=shorter["Generation_transmission_zones"], lower_bound=0) # Units: MWh per time-interval; Generation level - transmission zone tech. & storage
             STO_IN[Nodes_Storages, Hours], (base_name=shorter["Storage_inflow"], lower_bound=0) # Units: MWh per time-interval; Storage energy inflow
             STO_OUT[Nodes_Storages, Hours], (base_name=shorter["Storage_outflow"], lower_bound=0) # Units: MWh per time-interval; Storage energy outflow
             STO_L[Nodes_Storages, Hours], (base_name=shorter["Storage_level"], lower_bound=0) # Units: MWh at a given time-interval; Storage energy level
@@ -237,6 +243,7 @@ function build_model!(dtr::DieterModel)
             N_STO_E[Nodes_Storages], (base_name=shorter["Storage_build_energy"], lower_bound=0) # Units: MWh; Storage energy technology built
             N_STO_P[Nodes_Storages], (base_name=shorter["Storage_capacity"], lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
             N_SYNC[DemandRegions], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MWs; synchronous condenser capacity (in MW x seconds) for each demand region
+            IN_TxZ[TxZones,Hours], (base_name=shorter["Inertia_level"], lower_bound=0)  # UnitsL MWs; level of inertia in a transmission zone within a given hour.
             FLOW[Arcs,Hours], (base_name=shorter["Internodal_flow"]) # Units: MWh; Power flow between nodes in topology
             N_IC_EXP[Arcs], (base_name=shorter["Internodal_flow_expansion"], lower_bound=0) # Units: MW; Power flow expansion betweeen TxZones, and REZones to TxZones
             #
@@ -501,24 +508,24 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     end
 
     # Inertia requirements
+    @info "Definition of inertia book-keeping variables"
+    @constraint(m, TxZoneInertia[zone=TxZones,h=Hours],
+        IN_TxZ[zone,h] ==
+            sum(InertialSecs[t] * G[(n,t),h] for (n,t) in Nodes_NotBaseLoad if n == zone)
+         +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * N_TECH[(n,t)] for (n,t) in Nodes_CoalTechs if n == zone)
+         +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * N_TECH[(n,t)] for (n,t) in Nodes_HydroTechs if (n, zone) in Nodes_Promotes)
+    );
 
     @info "Minimum inertia threshold levels"
     @constraint(m, InertiaNormalThreshold[dr=DemandRegions, h=Hours],
-          N_SYNC[dr] +
-          sum(InertialSecs[t] * CapacityDerating[n,t,h] * N_TECH[(n,t)]
-                for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
-                >= InertiaMinThreshold[dr]*RequireRatio[dr]
+          N_SYNC[dr] + sum(IN_TxZ[zone,h] for zone in TxZones if node2DemReg[zone] == dr) >= InertiaMinThreshold[dr]*RequireRatio[dr]
     );
 
     @info "Secure inertia requirement levels"
     @constraint(m, InertiaSecureRequirement[dr=DemandRegions, h=Hours],
-          N_SYNC[dr] +
-          sum(InertialSecs[t] * CapacityDerating[n,t,h] * N_TECH[(n,t)]
-                for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
-          + sum(InertialSecs[t] * Availability[n,t,h] * N_TECH[(n,t)]
-                    for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr) 
-          + sum(InertialSecsSto[n,sto]*N_STO_P[(n,sto)]
-                for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
+            N_SYNC[dr] + sum(IN_TxZ[zone,h] for zone in TxZones if node2DemReg[zone] == dr)
+          + sum(InertialSecs[t] * Availability[n,t,h] * N_TECH[(n,t)] for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr) 
+          + sum(InertialSecsSto[n,sto]*N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
                 >= InertiaMinSecure[dr]*RequireRatio[dr]
     );
 
@@ -970,6 +977,7 @@ function generate_results!(dtr::DieterModel)
         :N_REZ_EXP_TX => [:REZones],
         :N_SYNC => [:DemandRegion],
         :FLOW => [:Arcs,:Hours],
+        :IN_TxZ => [:TxZones,:Hours],
         :N_IC_EXP => [:Arcs],
 
         :EV_CHARGE => [:EV, :Hours],
