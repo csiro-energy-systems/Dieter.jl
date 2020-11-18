@@ -186,6 +186,10 @@ function convert_jump_container_to_df(var::JuMP.Containers.DenseAxisArray;
     dim_names::Vector{Symbol}=Vector{Symbol}(),
     value_col::Symbol=:Value)
 
+    if isempty(var)
+        return DataFrame()
+    end
+
     (length(dim_names) == 0) && (dim_names = [Symbol("dim$i") for i in 1:length(var.axes)])
 
     if length(dim_names) != length(var.axes)
@@ -212,6 +216,10 @@ function convert_jump_container_to_df(var::JuMP.Containers.SparseAxisArray;
     dim_names::Vector{Symbol}=Vector{Symbol}(),
     value_col::Symbol=:Value)
 
+    if isempty(var)
+        return DataFrame()
+    end
+
     var_data = (value.(var)).data
 
     num_dim = length(collect(keys(var_data))[1])  # Roundabout way of finding the dimension of the var array
@@ -233,6 +241,10 @@ end
 function convert_jump_container_to_df(var::Array{VariableRef};
     dim_names::Vector{Symbol}=Vector{Symbol}(),
     value_col::Symbol=:Value)
+
+    if isempty(var)
+        return DataFrame()
+    end
 
     num_dim = size(var,2)
 
