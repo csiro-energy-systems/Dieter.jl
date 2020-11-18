@@ -62,6 +62,10 @@ function build_model!(dtr::DieterModel)
     Nodes_Techs = dtr.sets[:Nodes_Techs]
     Nodes_Storages = dtr.sets[:Nodes_Storages]
 
+    Nodes_Techs_Exi = dtr.sets[:Nodes_Techs_Exi]
+    Nodes_Techs_New = dtr.sets[:Nodes_Techs_New]
+    Nodes_Storages_New = dtr.sets[:Nodes_Storages_New]
+
     Nodes_Renew = dtr.sets[:Nodes_Renew]
     # Nodes_Conven = dtr.sets[:Nodes_Conven]
     Nodes_Dispatch = dtr.sets[:Nodes_Dispatch]
@@ -154,6 +158,8 @@ function build_model!(dtr::DieterModel)
     MaxRampDownPerHour = dtr.parameters[:MaxRampDownPerHour]  # Units MW/h; Maximum ramping down of technology
 
     MinimumRenewShare = dtr.settings[:min_res_system]
+
+    CapAdd = dtr.parameters[:CapAdd]
 
     ## End of sync. with "load_names.jl"
 
@@ -298,9 +304,9 @@ cost_scaling*(sum(MarginalCost[n,t] * G[(n,t),h] for (n,t) in Nodes_Dispatch, h 
             )
 
         +
-cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
-            + sum(InvestmentCostPower[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages)
-            + sum(InvestmentCostEnergy[n,sto] * N_STO_E[(n,sto)] for (n,sto) in Nodes_Storages)
+cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_New)
+            + sum(InvestmentCostPower[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages_New)
+            + sum(InvestmentCostEnergy[n,sto] * N_STO_E[(n,sto)] for (n,sto) in Nodes_Storages_New)
 
             + SynConCapCost["SynConNew"] * sum(N_SYNC[dr] for dr in DemandRegions)
 
@@ -386,12 +392,12 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     # Energy flow bounds:
     @info "Energy flow bounds."
     @constraint(m, FlowEnergyUpperBound[(from,to)=Arcs,h=Hours],
-        FLOW[(from,to),h] <= time_ratio * ( TransferCapacity[(from,to)] + N_IC_EXP[(from,to)] )
+        FLOW[(from,to),h] <= time_ratio * ( TransferCapacity[(from,to)] + N_IC_EXP[(from,to)] + CapAdd[:N_IC_EXP][(from,to)])
     );
 
     @info "Transmission expansion upper bounds."
     @constraint(m, FlowExpandUpperBound[(from,to)=Arcs],
-        N_IC_EXP[(from,to)] <= ExpansionLimit_Tx[(from,to)]
+        N_IC_EXP[(from,to)] + CapAdd[:N_IC_EXP][(from,to)] <= ExpansionLimit_Tx[(from,to)]
     );
 
     @info "Energy flow expansion symmetry."
@@ -417,20 +423,20 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     # Variable upper bound on dispatchable generation by capacity
     @info "Variable upper bound on dispatchable generation by capacity."
     @constraint(m, MaxGenerationDisp[(n,t)=Nodes_Dispatch,h=Hours],
-        G[(n,t),h] <= CapacityDerating[n,t,h] * time_ratio * N_TECH[(n,t)]
+        G[(n,t),h] <= CapacityDerating[n,t,h] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)])
     );
 
     @info "Variable upper bound on non-dispatchable generation by capacity."
     @constraint(m, MaxGenerationNonDisp[(n,t)=Nodes_Avail_Techs,h=Hours],
         # G[(n,t),h] + CU[(n,t),h] == Availability[n,t,h] * time_ratio * N_TECH[(n,t)]
-        G[(n,t),h] <= Availability[n,t,h] * time_ratio * N_TECH[(n,t)]
+        G[(n,t),h] <= Availability[n,t,h] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)])
     );
 
     # Maximum capacity allowed
     if !(isDictAllMissing(MaxCapacity))
         @info "Maximum capacity allowed."
         @constraint(m, MaxCapacityBound[(n,t)=Nodes_Techs; !(MaxCapacity[n,t] |> ismissing)],
-            N_TECH[(n,t)] <= MaxCapacity[n,t]
+            N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)] <= MaxCapacity[n,t]
         );
     end
 
@@ -446,12 +452,12 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @info "Renewable energy zone build limits."
     @constraint(m, REZBuildLimits[rez=REZones,h=Hours],
         sum(G[(z,t),h] for (z,t) in Nodes_Techs if (z == rez && !occursin(r"Hydro_",t))) ## TODO: remove this hard-coding!
-            <= time_ratio*(TotalBuildCap[rez] +  N_REZ_EXP[rez]) # + N_REZ_EXP_TX[rez]
+            <= time_ratio*(TotalBuildCap[rez] +  N_REZ_EXP[rez] + CapAdd[:N_REZ_EXP][rez]) # + N_REZ_EXP_TX[rez]
     );
 
     @info "Renewable energy zone expansion limits."
     @constraint(m, REZExpansionBound[rez=REZones],
-        N_REZ_EXP[rez] <= ExpansionLimit_REZ[rez]
+        N_REZ_EXP[rez] + CapAdd[:N_REZ_EXP][rez] <= ExpansionLimit_REZ[rez]
     );
 
     @info "Renewable energy zone expansion link to transmission expansion."
@@ -486,9 +492,9 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     # Operating reserves
     @info "Operating reserve margin"
     @constraint(m, OperatingReserve[dr=DemandRegions, h=Hours],
-        sum( CapacityDerating[n,t,h] * time_ratio * N_TECH[(n,t)] - G[(n,t),h]
+        sum( CapacityDerating[n,t,h] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) - G[(n,t),h]
             for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
-      + sum( PeakContribution[n,t] * time_ratio * N_TECH[(n,t)]
+      + sum( PeakContribution[n,t] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)])
             for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr)  # or replace `Nodes_Avail_Techs` with `setdiff(Nodes_Avail_Techs,Nodes_Dispatch)`
       + sum( sqrt(Efficiency[n,sto])*STO_L[(n,sto), h]
             for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
@@ -500,7 +506,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     if !(isempty(keys(MinStableGen)))
         @info "Minimum stable generation levels"
         @constraint(m, MinStableGeneration[(n,t)=keys(MinStableGen), h=Hours; !(MinStableGen[n,t] |> ismissing)],
-            G[(n,t),h] >= MinStableGen[n,t] * CapacityDerating[n,t,h] * time_ratio * N_TECH[(n,t)]
+            G[(n,t),h] >= MinStableGen[n,t] * CapacityDerating[n,t,h] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)])
         );
         ## Average generation version:
         # @constraint(m, MinStableGeneration[(n,t)=Nodes_Techs; !(MinStableGen[n,t] |> ismissing)],
@@ -512,20 +518,20 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @constraint(m, TxZoneInertia[zone=TxZones,h=Hours],
         IN_TxZ[zone,h] ==
             sum(InertialSecs[t] * G[(n,t),h] for (n,t) in Nodes_NotBaseLoad if n == zone)
-         +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * N_TECH[(n,t)] for (n,t) in Nodes_CoalTechs if n == zone)
-         +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * N_TECH[(n,t)] for (n,t) in Nodes_HydroTechs if (n, zone) in Nodes_Promotes)
+         +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_CoalTechs if n == zone)
+         +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_HydroTechs if (n, zone) in Nodes_Promotes)
     );
 
     @info "Minimum inertia threshold levels"
     @constraint(m, InertiaNormalThreshold[dr=DemandRegions, h=Hours],
-          N_SYNC[dr] + sum(IN_TxZ[zone,h] for zone in TxZones if node2DemReg[zone] == dr) >= InertiaMinThreshold[dr]*RequireRatio[dr]
+        (N_SYNC[dr] + CapAdd[:N_SYNC][dr]) + sum(IN_TxZ[zone,h] for zone in TxZones if node2DemReg[zone] == dr) >= InertiaMinThreshold[dr]*RequireRatio[dr]
     );
 
     @info "Secure inertia requirement levels"
     @constraint(m, InertiaSecureRequirement[dr=DemandRegions, h=Hours],
-            N_SYNC[dr] + sum(IN_TxZ[zone,h] for zone in TxZones if node2DemReg[zone] == dr)
-          + sum(InertialSecs[t] * Availability[n,t,h] * N_TECH[(n,t)] for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr) 
-          + sum(InertialSecsSto[n,sto]*N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
+        (N_SYNC[dr] + CapAdd[:N_SYNC][dr]) + sum(IN_TxZ[zone,h] for zone in TxZones if node2DemReg[zone] == dr)
+          + sum(InertialSecs[t] * Availability[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr) 
+          + sum(InertialSecsSto[n,sto]*(N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)]) for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
                 >= InertiaMinSecure[dr]*RequireRatio[dr]
     );
 
@@ -618,7 +624,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @constraint(m, StorageLevelStart[(n,sto)=Nodes_Storages],
         STO_L[(n,sto),Hours[1]]
          ==
-        StartLevel[n,sto] * N_STO_E[(n,sto)]
+        StartLevel[n,sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
         +   sqrt(Efficiency[n,sto])*STO_IN[(n,sto), Hours[1]]
         - 1/sqrt(Efficiency[n,sto])*STO_OUT[(n,sto), Hours[1]]
     );
@@ -628,7 +634,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     @constraint(m, StorageLevelEnd[(n,sto)=Nodes_Storages],
         STO_L[(n,sto),Hours[end]]
          ==
-        StartLevel[n,sto] * N_STO_E[(n,sto)]
+        StartLevel[n,sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
     );
 
     # @constraint(m, StorageBalanceFirstHour[(n,sto) in Nodes_Storages],
@@ -652,19 +658,19 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     # Storage Power Capacity (con4c_stolev_max)
     @info "Storage power capacity."
     @constraint(m, MaxLevelStorage[(n,sto)=Nodes_Storages,h=Hours],
-        STO_L[(n,sto),h] <= N_STO_E[(n,sto)]
+        STO_L[(n,sto),h] <= (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
     );
 
     # Storage maximum inflow (con4d_maxin_sto)
     @info "Storage maximum inflow."
     @constraint(m, MaxWithdrawStorage[(n,sto)=Nodes_Storages,h=Hours],
-        STO_IN[(n,sto),h] <= time_ratio * N_STO_P[(n,sto)]
+        STO_IN[(n,sto),h] <= time_ratio * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
     );
 
     # Storage maximum outflow by capacity (con4e_maxout_sto)
     @info "Storage generation outflow by capacity."
     @constraint(m, MaxGenerationStorage[(n,sto)=Nodes_Storages,h=Hours],
-        STO_OUT[(n,sto),h] <= time_ratio * N_STO_P[(n,sto)]
+        STO_OUT[(n,sto),h] <= time_ratio * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
     );
 
     if !(isDictAllMissing(dtr.parameters[:MaxEnergy]))
@@ -676,13 +682,13 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
 
     @info "Storage: maximum power allowed."
     @constraint(m, MaxPowerStorage[(n,sto)=Nodes_Storages; !(MaxCapacity[n,sto] |> ismissing)],
-        N_STO_P[(n,sto)] <= MaxCapacity[n,sto]
+        N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)] <= MaxCapacity[n,sto]
     );
 
     # Maximum Energy to Power ratio for certain storage technologies (con4k_PHS_EtoP)
     @info "Storage: maximum energy-to-power ratio (use time)"
     @constraint(m, EnergyToPowerRatio[(n,sto)=Nodes_Storages; !(MaxEtoP_ratio[n,sto] |> ismissing)],
-        N_STO_E[(n,sto)] <= MaxEtoP_ratio[n,sto]*N_STO_P[(n,sto)]
+        N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] <= MaxEtoP_ratio[n,sto] * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
     );
 
     # Maximum storage outflow - no more than level of last period (con4h_maxout_lev)
@@ -694,7 +700,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
     # Maximum storage inflow - no more than energy capacity minus level of last period (con4i_maxin_lev)
     @info "Storage: maximum inflow - no more than energy capacity minus level of last period"
     @constraint(m, MaxInflowStorage[(n,sto)=Nodes_Storages,h=Hours2],
-         sqrt(Efficiency[n,sto])*STO_IN[(n,sto),h] <= N_STO_E[(n,sto)] - STO_L[(n,sto),h-1]
+         sqrt(Efficiency[n,sto])*STO_IN[(n,sto),h] <= N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] - STO_L[(n,sto),h-1]
     );
 
     next!(prog)
@@ -833,17 +839,17 @@ function build_h2_constraints(dtr::DieterModel)
 
     @info "Hydrogen: Variable upper bound on power-to-gas."
     @constraint(dtr.model, MaxP2G[(n,p2g)=Nodes_P2G,h=Hours],
-        H2_P2G[(n,p2g),h] <= time_ratio * N_P2G[(n,p2g)]
+        H2_P2G[(n,p2g),h] <= time_ratio * (N_P2G[(n,p2g)] + CapAdd[:N_P2G][(n,p2g)])
     );
 
     @info "Hydrogen: Variable upper bound on gas-to-power."
     @constraint(dtr.model, MaxG2P[(n,g2p)=Nodes_G2P,h=Hours],
-        H2_G2P[(n,g2p),h] <= time_ratio * N_G2P[(n,g2p)]
+        H2_G2P[(n,g2p),h] <= time_ratio * N_G2P[(n,g2p)]  # + CapAdd[:N_G2P][(n,p2g)] )
     );
 
     @info "Hydrogen: Variable upper bound on gas storage."
     @constraint(dtr.model, MaxLevelGasStorage[(n,gs)=Nodes_GasStorages,h=Hours],
-        H2_GS_L[(n,gs),h] <= N_GS[(n,gs)]
+        H2_GS_L[(n,gs),h] <= N_GS[(n,gs)]  # + CapAdd[:N_GS][(n,p2g)] )
     );
 
     @constraint(dtr.model, GasStorageIn[(n,gs)=Nodes_GasStorages,h=Hours],
@@ -874,13 +880,13 @@ function build_h2_constraints(dtr::DieterModel)
 
     @info "Hydrogen: gas storage balance at first time-steps."
     @constraint(dtr.model, GasStorageBalanceFirstHours[(n,gs)=Nodes_GasStorages],
-        H2_GS_L[(n,gs), Hours[1]] == StartLevel[n,gs] * N_GS[(n,gs)] + H2_GS_IN[(n,gs),Hours[1]] - H2_GS_OUT[(n,gs),Hours[1]]
+        H2_GS_L[(n,gs), Hours[1]] == StartLevel[n,gs] * N_GS[(n,gs)] + H2_GS_IN[(n,gs),Hours[1]] - H2_GS_OUT[(n,gs),Hours[1]]  # + CapAdd[:N_GS][(n,p2g)] )
     );
 
     # End level equal to initial level
     @info "Hydrogen: gas storage end level equal to initial level."
     @constraint(dtr.model, GasStorageLevelEnd[(n,gs)=Nodes_GasStorages],
-        H2_GS_L[(n,gs), Hours[end]] == StartLevel[n,gs] * N_GS[(n,gs)]
+        H2_GS_L[(n,gs), Hours[end]] == StartLevel[n,gs] * N_GS[(n,gs)]  # + CapAdd[:N_GS][(n,p2g)] )
     );
 
     # next!(prog)
