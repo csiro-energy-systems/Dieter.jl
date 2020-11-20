@@ -809,6 +809,8 @@ function build_h2_constraints(dtr::DieterModel)
     # H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
     H2Demand = dtr.parameters[:H2Demand] # Units: MWh / year for a given Node and P2G tech.
 
+    CapAdd = dtr.parameters[:CapAdd]
+
     Capacity_Factor_AE = dtr.settings[:capacity_factor_ae] # e.g 0.8 means must produce at least 80% of hourly quota each hour.
 
     # Variables:
