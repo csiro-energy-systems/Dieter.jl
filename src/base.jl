@@ -132,14 +132,14 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
         for h2_electrolyser in H2ElectrolyserTypes
             if h2_electrolyser in keys(ScenCostPower)
                 if h2_electrolyser == "N_Electrolyser_PEM"
-                dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
+                dfDict["h2_technologies"] = @eachrow dfDict["h2_technologies"] begin
                         if :H2Technologies == "H2Electrolyser_PEM"
                             :H2OvernightCost = ScenCostPower[h2_electrolyser]
                         end
                     end
                 end
                 if h2_electrolyser == "N_Electrolyser_AE"
-                dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
+                dfDict["h2_technologies"] = @eachrow dfDict["h2_technologies"] begin
                         if :H2Technologies == "H2Electrolyser_AE"
                             :H2OvernightCost = ScenCostPower[h2_electrolyser]
                         end
@@ -153,7 +153,7 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
 
         for h2_recip_eng in H2RecipEngTypes
             if h2_recip_eng in keys(ScenCostPower)
-                dfDict["h2_technologies"] = @byrow! dfDict["h2_technologies"] begin
+                dfDict["h2_technologies"] = @eachrow dfDict["h2_technologies"] begin
                         if :H2Technologies == "RecipEngH2"
                             :H2OvernightCost = ScenCostPower[h2_recip_eng]
                         end
