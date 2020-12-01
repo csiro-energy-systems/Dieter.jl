@@ -397,7 +397,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
 
     @info "Transmission expansion upper bounds."
     @constraint(m, FlowExpandUpperBound[(from,to)=Arcs],
-        N_IC_EXP[(from,to)] + CapAdd[:N_IC_EXP][(from,to)] <= ExpansionLimit_Tx[(from,to)]
+        N_IC_EXP[(from,to)] + trunc(CapAdd[:N_IC_EXP][(from,to)]) <= ExpansionLimit_Tx[(from,to)]
     );
 
     @info "Energy flow expansion symmetry."
@@ -457,7 +457,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
 
     @info "Renewable energy zone expansion limits."
     @constraint(m, REZExpansionBound[rez=REZones],
-        N_REZ_EXP[rez] + CapAdd[:N_REZ_EXP][rez] <= ExpansionLimit_REZ[rez]
+        N_REZ_EXP[rez] + trunc(CapAdd[:N_REZ_EXP][rez]) <= ExpansionLimit_REZ[rez]
     );
 
     @info "Renewable energy zone expansion link to transmission expansion."
