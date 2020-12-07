@@ -16,7 +16,7 @@ end
 function parse_file(file::String; dataname::String="")
     filetype=split(lowercase(file), '.')[end]
     if filetype == "csv"
-        df = CSV.read(file)
+        df = CSV.read(file, DataFrame)
     elseif filetype == "sql" ## TODO
         # We expect dataname to be the path to a SQLite database file
         if !(isfile(dataname))
