@@ -190,7 +190,9 @@ function convert_jump_container_to_df(var::JuMP.Containers.DenseAxisArray;
         return DataFrame()
     end
 
-    (length(dim_names) == 0) && (dim_names = [Symbol("dim$i") for i in 1:length(var.axes)])
+    if length(dim_names) == 0
+        dim_names = [Symbol("dim$i") for i in 1:length(var.axes)]
+    end
 
     if length(dim_names) != length(var.axes)
         throw(ArgumentError("Length of given name list does not fit the number of variable dimensions"))
@@ -203,9 +205,7 @@ function convert_jump_container_to_df(var::JuMP.Containers.DenseAxisArray;
 
     var_val  = value.(var)
 
-    df = [merge(NamedTuple{tup_dim}(ind[i]), NamedTuple{(value_col,)}(var_val[(ind[i]...,)...]))
-        for i in 1:length(ind)] |>
-        DataFrame
+    df = DataFrame([merge(NamedTuple{tup_dim}(ind[i]), NamedTuple{(value_col,)}(var_val[(ind[i]...,)...])) for i in 1:length(ind)])
 
     return df
 end
@@ -224,7 +224,9 @@ function convert_jump_container_to_df(var::JuMP.Containers.SparseAxisArray;
 
     num_dim = length(collect(keys(var_data))[1])  # Roundabout way of finding the dimension of the var array
 
-    (length(dim_names) == 0) && (dim_names = [Symbol("dim$i") for i in 1:num_dim])
+    if length(dim_names) == 0
+        dim_names = [Symbol("dim$i") for i in 1:num_dim]
+    end
 
     if length(dim_names) != num_dim
         throw(ArgumentError("Length of given name list does not fit the number of variable dimensions"))
@@ -232,9 +234,8 @@ function convert_jump_container_to_df(var::JuMP.Containers.SparseAxisArray;
 
     tup_dim = (dim_names..., value_col)
 
-    df = [NamedTuple{tup_dim}(([k[i] for i in 1:length(dim_names)]..., v)) for (k,v) in var_data] |>
-        DataFrame
-
+    df = DataFrame([NamedTuple{tup_dim}(([k[i] for i in 1:length(dim_names)]..., v)) for (k,v) in var_data])
+        
     return df
 end
 
@@ -248,7 +249,9 @@ function convert_jump_container_to_df(var::Array{VariableRef};
 
     num_dim = size(var,2)
 
-    (length(dim_names) == 0) && (dim_names = [Symbol("dim$i") for i in 1:num_dim])
+    if length(dim_names) == 0
+        dim_names = [Symbol("dim$i") for i in 1:num_dim]
+    end
 
     if length(dim_names) != num_dim
         throw(ArgumentError("Length of given name list does not fit the number of variable dimensions"))

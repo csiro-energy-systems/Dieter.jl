@@ -86,7 +86,8 @@ function build_model!(dtr::DieterModel)
 
     Nodes_CoalTechs = dtr.sets[:Nodes_CoalTechs]
     Nodes_HydroTechs = dtr.sets[:Nodes_HydroTechs]
-    Nodes_NotBaseLoad =  setdiff(Nodes_Dispatch, Nodes_CoalTechs, Nodes_HydroTechs)
+    Nodes_PumpedHydro = dtr.sets[:Nodes_PumpedHydro]
+    Nodes_NotBaseLoad =  setdiff(Nodes_Dispatch, Nodes_CoalTechs) # , Nodes_HydroTechs)
     dtr.sets[:Nodes_NotBaseLoad] = Nodes_NotBaseLoad
 
     Nodes_RampingTechs = dtr.sets[:Nodes_RampingTechs]
@@ -519,7 +520,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
         IN_TxZ[zone,h] ==
             sum(InertialSecs[t] * G[(n,t),h] for (n,t) in Nodes_NotBaseLoad if n == zone)
          +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_CoalTechs if n == zone)
-         +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_HydroTechs if (n, zone) in Nodes_Promotes)
+        #  +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_HydroTechs if (n, zone) in Nodes_Promotes)
     );
 
     @info "Minimum inertia threshold levels"
@@ -531,7 +532,10 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
     @constraint(m, InertiaSecureRequirement[dr=DemandRegions, h=Hours],
         (N_SYNC[dr] + CapAdd[:N_SYNC][dr]) + sum(IN_TxZ[zone,h] for zone in TxZones if node2DemReg[zone] == dr)
           + sum(InertialSecs[t] * Availability[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr) 
-          + sum(InertialSecsSto[n,sto]*(N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)]) for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
+          + sum(InertialSecsSto[n,sto]*(N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)]) 
+                    for (n,sto) in setdiff(Nodes_Storages, Nodes_PumpedHydro) if node2DemReg[n] == dr)
+          + sum(InertialSecsSto[n,sto]*STO_OUT[(n,sto),h]
+                    for (n,sto) in Nodes_PumpedHydro if node2DemReg[n] == dr)
                 >= InertiaMinSecure[dr]*RequireRatio[dr]
     );
 
