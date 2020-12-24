@@ -62,7 +62,7 @@ function build_model!(dtr::DieterModel)
     Nodes_Techs = dtr.sets[:Nodes_Techs]
     Nodes_Storages = dtr.sets[:Nodes_Storages]
 
-    Nodes_Techs_Exi = dtr.sets[:Nodes_Techs_Exi]
+    # Nodes_Techs_Exi = dtr.sets[:Nodes_Techs_Exi]
     Nodes_Techs_New = dtr.sets[:Nodes_Techs_New]
     Nodes_Storages_New = dtr.sets[:Nodes_Storages_New]
 
@@ -452,6 +452,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
     # Renewable energy zone build limits.
     @info "Renewable energy zone build limits."
     @constraint(m, REZBuildLimits[rez=REZones,h=Hours],
+        # sum(G[(z,t),h] for (z,t) in Nodes_Avail_Techs if z == rez)
         sum(G[(z,t),h] for (z,t) in Nodes_Techs if (z == rez && !occursin(r"Hydro_",t))) ## TODO: remove this hard-coding!
             <= time_ratio*(TotalBuildCap[rez] +  N_REZ_EXP[rez] + CapAdd[:N_REZ_EXP][rez]) # + N_REZ_EXP_TX[rez]
     );
