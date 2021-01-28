@@ -396,10 +396,10 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
         FLOW[(from,to),h] <= time_ratio * ( TransferCapacity[(from,to)] + N_IC_EXP[(from,to)] + CapAdd[:N_IC_EXP][(from,to)])
     );
 
-    @info "Transmission expansion upper bounds."
-    @constraint(m, FlowExpandUpperBound[(from,to)=Arcs],
-        N_IC_EXP[(from,to)] + trunc(CapAdd[:N_IC_EXP][(from,to)]) <= ExpansionLimit_Tx[(from,to)]
-    );
+    # @info "Transmission expansion upper bounds."
+    # @constraint(m, FlowExpandUpperBound[(from,to)=Arcs],
+    #     N_IC_EXP[(from,to)] + trunc(CapAdd[:N_IC_EXP][(from,to)]) <= ExpansionLimit_Tx[(from,to)]
+    # );
 
     @info "Energy flow expansion symmetry."
     @constraint(m, FlowEnergySymmetry[(from,to)=Arcs; from in Arcs_From],
