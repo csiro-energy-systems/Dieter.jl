@@ -833,11 +833,11 @@ function build_h2_constraints(dtr::DieterModel)
         sum(H2_P2G[(n,p2g),h] for h in Hours) >= H2Demand[n,p2g]
     );
 
-    @info "Hydrogen: Minimum monthly lower bound on power-to-gas for PEM tech."
-    @constraint(dtr.model, MinMonthlyP2G_PEM[(n,p2g)=Nodes_P2G_PEM, mth=1:12],
-        sum(H2_P2G[(n,p2g),h] for h in Hours if HoursToMonths[h] == mth)
-            >= (H2Demand[n,p2g]/periods)*sum(1.0 for h in Hours if HoursToMonths[h] == mth)
-    );
+    # @info "Hydrogen: Minimum monthly lower bound on power-to-gas for PEM tech."
+    # @constraint(dtr.model, MinMonthlyP2G_PEM[(n,p2g)=Nodes_P2G_PEM, mth=1:12],
+    #     sum(H2_P2G[(n,p2g),h] for h in Hours if HoursToMonths[h] == mth)
+    #         >= (H2Demand[n,p2g]/periods)*sum(1.0 for h in Hours if HoursToMonths[h] == mth)
+    # );
 
     @info "Hydrogen: Constant hourly lower bound on power-to-gas for AE tech."
     @constraint(dtr.model, MinHourlyP2G_AE[(n,p2g)=Nodes_P2G_AE, h=Hours],

@@ -41,7 +41,7 @@ function parse_data_to_model!(dtr::AbstractDieterModel; dataname::AbstractString
     dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
     initialise_set_relation_data!(dtr)
     parse_set_relations!(dtr)
-    parse_arcs!(dtr)
+    STABLE.parse_arcs!(dtr,dfDict["arcs"])
 
     # Calculated base parameters
     calc_base_parameters!(dtr)
