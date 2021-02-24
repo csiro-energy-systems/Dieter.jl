@@ -38,12 +38,13 @@ function calc_inv_gas!(dtr::DieterModel)
 
     dict = Dict((n,t) => oc[n,t]*annuity(i, lt[n,t]) for (n,t) in Nodes_H2Tech if t in T)
     update_dict!(dtr.parameters, :InvestmentCost, dict)
-    # for (k,v) in dict update_dict!(dtr.parameters[:InvestmentCost], k, v) end
-    # return dict
 
+    fc = dtr.parameters[:FuelCost]      # FuelCost in currency/MWh-thermal-input
+    eff = dtr.parameters[:Efficiency]   # Efficiency is unitless (MWh-output/MWh-thermal-input)
     vc = dtr.parameters[:VariableCost]
 
-    marginalcost = Dict((n,t) => vc[n,t] for (n,t) in Nodes_H2Tech)
+    marginalcost = Dict((n,t) => fc[n,t]/eff[n,t] + vc[n,t] for (n,t) in Nodes_H2Tech)
+
     update_dict!(dtr.parameters, :MarginalCost, marginalcost)
 
     return nothing

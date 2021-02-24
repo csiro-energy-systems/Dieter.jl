@@ -851,7 +851,7 @@ function build_h2_constraints(dtr::DieterModel)
 
     @info "Hydrogen: Variable upper bound on gas-to-power."
     @constraint(dtr.model, MaxG2P[(n,g2p)=Nodes_G2P,h=Hours],
-        H2_G2P[(n,g2p),h] <= time_ratio * N_G2P[(n,g2p)]  # + CapAdd[:N_G2P][(n,p2g)] )
+        H2_G2P[(n,g2p),h] <= time_ratio * (N_G2P[(n,g2p)] + CapAdd[:N_G2P][(n,g2p)])
     );
 
     @info "Hydrogen: Variable upper bound on gas storage."

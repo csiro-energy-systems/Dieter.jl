@@ -52,6 +52,7 @@ end
 
 function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString="")
 
+    datapath = dtr.settings[:datapath]
     fileDict = dtr.data["files"]
     dfDict = dtr.data["dataframes"]
 
@@ -128,43 +129,44 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
         H2ElectrolyserTypes = tech_types[:H2ElectrolyserTypes]
         H2RecipEngTypes = tech_types[:H2RecipEngTypes]
 
-        ## TODO: make this more dynamically depend on data for Electrolyser types and cost correspondences
-        for h2_electrolyser in H2ElectrolyserTypes
-            if h2_electrolyser in keys(ScenCostPower)
-                if h2_electrolyser == "N_Electrolyser_PEM"
-                dfDict["h2_technologies"] = @eachrow dfDict["h2_technologies"] begin
-                        if :H2Technologies == "H2Electrolyser_PEM"
-                            :H2OvernightCost = ScenCostPower[h2_electrolyser]
-                        end
-                    end
-                end
-                if h2_electrolyser == "N_Electrolyser_AE"
-                dfDict["h2_technologies"] = @eachrow dfDict["h2_technologies"] begin
-                        if :H2Technologies == "H2Electrolyser_AE"
-                            :H2OvernightCost = ScenCostPower[h2_electrolyser]
-                        end
-                    end
-                end
-                @info "H2 Electrolyser ($(h2_electrolyser)) cost was overwritten with scenario value $(ScenCostPower[h2_electrolyser])."
-            else
-                @warn "H2 Electrolyser ($(h2_electrolyser)) cost was NOT overwritten by scenario value"
+        ## Map OvernightCost data into table
+        dfDict["h2_technologies"] = @eachrow dfDict["h2_technologies"] begin
+            if :H2Technologies in keys(ScenCostPower)
+                :H2OvernightCost = ScenCostPower[:H2Technologies]
+                h2_electrolyser = :H2Technologies
+                region = :Region
+                @info "H2 Technology ($(h2_electrolyser)) cost was overwritten in $(region) with scenario value $(ScenCostPower[h2_electrolyser])."
             end
         end
-
-        for h2_recip_eng in H2RecipEngTypes
-            if h2_recip_eng in keys(ScenCostPower)
-                dfDict["h2_technologies"] = @eachrow dfDict["h2_technologies"] begin
-                        if :H2Technologies == "RecipEngH2"
-                            :H2OvernightCost = ScenCostPower[h2_recip_eng]
-                        end
-                    end
-                @info "H2 Reciprocating Engine ($(h2_recip_eng)) cost was overwritten with scenario value."
-            else
-                @warn "H2 Reciprocating Engine cost was _NOT_ overwritten by scenario value"
-            end
-        end
+        # else
+        #     @warn "H2 Electrolyser ($(h2_electrolyser)) cost was NOT overwritten by scenario value"
+        # end
 
         parse_h2_technologies!(dtr, dfDict["h2_technologies"])
+
+        # # H2 Reciprocating Engine Fuel prices
+        InstanceYear = dtr.settings[:inst_year]
+        InstanceYear_Sym = Symbol("FYE$(InstanceYear)")
+        node2DemReg = dtr.parameters[:node_demreg_dict]
+
+        fuel_prices_sql_db_path = dtr.settings[:datapaths]["Fuel_Price_SQL_db"]
+        H2_Cost_Tech_Map = dtr.settings[:h2_cost_tech_map]
+        
+        if dtr.settings[:H2_G2P_Allowed_flag] == true
+            fileDict["fuel_prices_h2"] = joinpath(datapath,"base","fuel_prices_h2.sql")
+            dfDict["fuel_prices_h2"] = parse_file(fileDict["fuel_prices_h2"]; dataname=fuel_prices_sql_db_path)
+            
+            df_fuel_h2 = @where(dfDict["fuel_prices_h2"],:TechID .== H2_Cost_Tech_Map["N_RecipH2"])
+            # Rename the InstanceYear column as `:FuelCost`:
+            select!(df_fuel_h2,:Region, (InstanceYear_Sym => :FuelCost))
+            h2_fuel_dict = Dict(eachrow(df_fuel_h2))
+
+            for ((n,t),v) in dtr.parameters[:FuelCost] 
+                    if t == H2_Cost_Tech_Map["N_RecipH2"]
+                        dtr.parameters[:FuelCost][(n,t)] = h2_fuel_dict[node2DemReg[n]]
+                    end
+            end
+        end
 
         calc_inv_gas!(dtr)
     else
