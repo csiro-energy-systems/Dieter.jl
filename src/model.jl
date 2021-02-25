@@ -31,6 +31,7 @@ function build_model!(dtr::DieterModel)
     dtr.sets[:Hours] = Hours
 
     cost_scaling = dtr.settings[:cost_scaling]
+    loss_factor_tx = dtr.settings[:loss_factor_tx] # e.g 1.06 means a 6% increase in given Demand to account for transmission losses.
 
     # Set definitions
 
@@ -378,11 +379,11 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
         + sum(H2_G2P[(zone,g2p),h] for (zone,g2p) in Nodes_G2P if zone == n)
         - sum(NegOpDemand[zone,hour] for (zone,hour) in keys(NegOpDemand) if (zone == n && hour == h))
         >=
-      Load[n,h]
-        # + sum(EV_CHARGE[ev,h] for ev in EV)
-        + sum(H2_P2G[(zone,p2g),h] for (zone,p2g) in Nodes_P2G if zone == n)
-        # + sum(HEAT_HP_IN[bu,hp,h] for bu in BU for hp in HP)
-    );
+      loss_factor_tx*(Load[n,h]
+                    + sum(H2_P2G[(zone,p2g),h] for (zone,p2g) in Nodes_P2G if zone == n))
+      );
+      # + sum(HEAT_HP_IN[bu,hp,h] for bu in BU for hp in HP)
+      # + sum(EV_CHARGE[ev,h] for ev in EV)
 
     # Energy flow reflexive constraint:
     @info "Energy flow reflexive constraint."
