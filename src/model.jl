@@ -819,6 +819,10 @@ function build_h2_constraints(dtr::DieterModel)
 
     Capacity_Factor_AE = dtr.settings[:capacity_factor_ae] # e.g 0.8 means must produce at least 80% of hourly quota each hour.
 
+    # if dtr.settings[:H2_G2P_Allowed_flag] == true
+    RecipH2_CF_UB = dtr.settings[:capacity_factor_recipH2_ub]
+    # end
+
     # Variables:
     H2_P2G = dtr.model.obj_dict[:H2_P2G]
     H2_G2P = dtr.model.obj_dict[:H2_G2P]
@@ -855,6 +859,10 @@ function build_h2_constraints(dtr::DieterModel)
         H2_G2P[(n,g2p),h] <= time_ratio * (N_G2P[(n,g2p)] + CapAdd[:N_G2P][(n,g2p)])
     );
 
+    @constraint(dtr.model, MaxCapFactorH2_G2P[(n,g2p)=Nodes_G2P],
+        sum(H2_G2P[(n,g2p),h] for h in Hours) <= RecipH2_CF_UB*length(Hours)*(N_G2P[(n,g2p)] + CapAdd[:N_G2P][(n,g2p)])
+    );
+              
     @info "Hydrogen: Variable upper bound on gas storage."
     @constraint(dtr.model, MaxLevelGasStorage[(n,gs)=Nodes_GasStorages,h=Hours],
         H2_GS_L[(n,gs),h] <= N_GS[(n,gs)]  # + CapAdd[:N_GS][(n,p2g)] )
