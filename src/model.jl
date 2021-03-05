@@ -148,6 +148,8 @@ function build_model!(dtr::DieterModel)
     InvestmentCostTransExp = filter(x -> !ismissing(x[2]) && x[1] in Arcs, dtr.parameters[:InvestmentCostTransExp]) # Units:  currency/MW; ; REZ capacity expansion costs, amortised to year
     InvestmentCostREZ_Exp  = filter(x -> !ismissing(x[2]) && x[1] in Arcs_REZones, dtr.parameters[:InvestmentCostTransExp]) # Units:  currency/MW; ; Transmission interconnector capacity expansion costs, amortised to year
 
+    ArcWeight = dtr.parameters[:arc_weight]
+
     Load = dtr.parameters[:Load] # Units: MWh per time-interval; wholesale energy demand within a time-interval (e.g. hourly or 1/2-hourly)
     NegOpDemand = dtr.parameters[:NegOpDemand] # Units: MWh per time-interval; wholesale energy produced from behind-the-meter generation (e.g. PV or EV)
 
@@ -316,7 +318,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
             + sum(FixedCost[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages)
 
             + sum(InvestmentCostREZ_Exp[rez,txz] * N_REZ_EXP[rez] for (rez,txz) in keys(InvestmentCostREZ_Exp) )
-            + sum(InvestmentCostTransExp[from,to] * N_IC_EXP[(from,to)] for (from,to) in Arcs)
+            + sum(ArcWeight[from,to]*InvestmentCostTransExp[from,to] * N_IC_EXP[(from,to)] for (from,to) in Arcs)
 
             + sum(InvestmentCost[n,p2g] * N_P2G[(n,p2g)] for (n,p2g) in Nodes_P2G)
             + sum(InvestmentCost[n,g2p] * N_G2P[(n,g2p)] for (n,g2p) in Nodes_G2P)
