@@ -93,6 +93,9 @@ function build_model!(dtr::DieterModel)
 
     Nodes_RampingTechs = dtr.sets[:Nodes_RampingTechs]
 
+    # Synchronous condensers
+    Nodes_SynCons = dtr.sets[:Nodes_SynCons]
+
     ## Electric Vehicles
     EV = dtr.sets[:ElectricVehicles]
 
@@ -127,12 +130,7 @@ function build_model!(dtr::DieterModel)
     CarbonContent = dtr.parameters[:CarbonContent] # Units: t-CO2/MWh-thermal; CO2 equivalent content per unit fuel used by tech.
     CarbonBudget = dtr.settings[:carbon_budget] # Units: t-CO2
 
-    InertialSecs = dtr.parameters[:InertialCoeff]
-    InertialSecsSto = dtr.parameters[:InertialCoeffSto]
-    InertiaMinThreshold = dtr.parameters[:InertiaMinThreshold]
-    InertiaMinSecure = dtr.parameters[:InertiaMinSecure]
-    RequireRatio = dtr.parameters[:RequireRatio]
-    SynConCapCost = dtr.parameters[:SynConCapCost]
+    InvestmentCostSynCon = dtr.parameters[:InvestmentCostSynCon]
 
     OperatingReserve = dtr.parameters[:OperatingReserve] # Units: MW; Regional operating reserve requirement (e.g. within state)
     MinStableGen = dtr.parameters[:MinStableGen] # Units: [0,1]; Minimum stable operational level for generation as fraction of Capacity in MW.
@@ -148,7 +146,7 @@ function build_model!(dtr::DieterModel)
     InvestmentCostTransExp = filter(x -> !ismissing(x[2]) && x[1] in Arcs, dtr.parameters[:InvestmentCostTransExp]) # Units:  currency/MW; ; REZ capacity expansion costs, amortised to year
     InvestmentCostREZ_Exp  = filter(x -> !ismissing(x[2]) && x[1] in Arcs_REZones, dtr.parameters[:InvestmentCostTransExp]) # Units:  currency/MW; ; Transmission interconnector capacity expansion costs, amortised to year
 
-    ArcWeight = dtr.parameters[:arc_weight]
+    ArcWeight = dtr.parameters[:ArcWeight]
 
     Load = dtr.parameters[:Load] # Units: MWh per time-interval; wholesale energy demand within a time-interval (e.g. hourly or 1/2-hourly)
     NegOpDemand = dtr.parameters[:NegOpDemand] # Units: MWh per time-interval; wholesale energy produced from behind-the-meter generation (e.g. PV or EV)
@@ -252,7 +250,7 @@ function build_model!(dtr::DieterModel)
             N_REZ_EXP_TX[REZones], (base_name=shorter["REZ_expand_by_transmission"], lower_bound=0) # Units: MW; Free REZ transmission capacity built when tranmission network is expanded
             N_STO_E[Nodes_Storages], (base_name=shorter["Storage_build_energy"], lower_bound=0) # Units: MWh; Storage energy technology built
             N_STO_P[Nodes_Storages], (base_name=shorter["Storage_capacity"], lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
-            N_SYNC[DemandRegions], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MWs; synchronous condenser capacity (in MW x seconds) for each demand region
+            N_SYNC[Nodes_SynCons], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MWs; synchronous condenser capacity (in MW)
             IN_TxZ[TxZones,Hours], (base_name=shorter["Inertia_level"], lower_bound=0)  # UnitsL MWs; level of inertia in a transmission zone within a given hour.
             FLOW[Arcs,Hours], (base_name=shorter["Internodal_flow"]) # Units: MWh; Power flow between nodes in topology
             N_IC_EXP[Arcs], (base_name=shorter["Internodal_flow_expansion"], lower_bound=0) # Units: MW; Power flow expansion betweeen TxZones, and REZones to TxZones
@@ -312,7 +310,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
             + sum(InvestmentCostPower[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages_New)
             + sum(InvestmentCostEnergy[n,sto] * N_STO_E[(n,sto)] for (n,sto) in Nodes_Storages_New)
 
-            + SynConCapCost["SynConNew"] * sum(N_SYNC[dr] for dr in DemandRegions)
+            + sum(InvestmentCostSynCon[n,syn] * N_SYNC[(n,syn)] for (n,syn) in Nodes_SynCons)
 
             + sum(FixedCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(FixedCost[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages)
@@ -518,47 +516,6 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
             # sum(G[(n,t),h] for h in Hours) >= MinStableGen[n,t]*length(Hours) )
     end
 
-    # Inertia requirements
-    @info "Definition of inertia book-keeping variables"
-    @constraint(m, TxZoneInertia[zone=TxZones,h=Hours],
-        IN_TxZ[zone,h] ==
-            sum(InertialSecs[t] * G[(n,t),h] for (n,t) in Nodes_NotBaseLoad if n == zone)
-         +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_CoalTechs if n == zone)
-        #  +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_HydroTechs if (n, zone) in Nodes_Promotes)
-    );
-
-    @info "Minimum inertia threshold levels"
-    @constraint(m, InertiaNormalThreshold[dr=DemandRegions, h=Hours],
-        (N_SYNC[dr] + CapAdd[:N_SYNC][dr]) + sum(IN_TxZ[zone,h] for zone in TxZones if node2DemReg[zone] == dr) >= InertiaMinThreshold[dr]*RequireRatio[dr]
-    );
-
-    @info "Secure inertia requirement levels"
-    @constraint(m, InertiaSecureRequirement[dr=DemandRegions, h=Hours],
-        (N_SYNC[dr] + CapAdd[:N_SYNC][dr]) + sum(IN_TxZ[zone,h] for zone in TxZones if node2DemReg[zone] == dr)
-          + sum(InertialSecs[t] * Availability[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr) 
-          + sum(InertialSecsSto[n,sto]*(N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)]) 
-                    for (n,sto) in setdiff(Nodes_Storages, Nodes_PumpedHydro) if node2DemReg[n] == dr)
-          + sum(InertialSecsSto[n,sto]*STO_OUT[(n,sto),h]
-                    for (n,sto) in Nodes_PumpedHydro if node2DemReg[n] == dr)
-                >= InertiaMinSecure[dr]*RequireRatio[dr]
-    );
-
-    # @info "System strength: zone fault contributions"  # FS - "fault strength"
-    # @constraint(m, SystemStrengthContrib[zone=DemandZones, h=Hours],
-    #     FS_TxZ[zone,h] = sum(ShortCircuitMultiplier[n,t]*G[(n,t),h]
-    #         for (n,t) in Nodes_Techs if n == zone )
-    #   + sum(ShortCircuitMultiplier[n,t]*N_STO_P[(n,t)]
-    #         for (n,sto) in Nodes_Storages in n == zone)
-    # );
-
-    # @info "System strength: system fault requirement"
-    # @constraint(m, SystemStrengthFaultReq[zone=DemandZones, h=Hours],
-    #     FS_TxZ[zone,h] + 
-    #     sum(Derating[zoneAdj]*FS_TxZ[zoneAdj,h]
-    #         for (from,to) in Arcs if ( (from == zone) && (to == zoneAdj) ))
-    #     >= FaultReqMinimum[zone]
-    # );
-        
 #=
     @info "Carbon budget upper limit (annual)"
     @constraint(m, CarbonBudgetLimit,
@@ -999,7 +956,7 @@ function generate_results!(dtr::DieterModel)
         :N_STO_P => [:Nodes_Storages],
         :N_REZ_EXP => [:REZones],
         :N_REZ_EXP_TX => [:REZones],
-        :N_SYNC => [:DemandRegion],
+        :N_SYNC => [:Nodes_SynCons],
         :FLOW => [:Arcs,:Hours],
         :IN_TxZ => [:TxZones,:Hours],
         :N_IC_EXP => [:Arcs],
