@@ -85,12 +85,6 @@ function build_model!(dtr::DieterModel)
 
     Nodes_Demand = dtr.sets[:Nodes_Demand]
 
-    Nodes_CoalTechs = dtr.sets[:Nodes_CoalTechs]
-    Nodes_HydroTechs = dtr.sets[:Nodes_HydroTechs]
-    Nodes_PumpedHydro = dtr.sets[:Nodes_PumpedHydro]
-    Nodes_NotBaseLoad =  setdiff(Nodes_Dispatch, Nodes_CoalTechs) # , Nodes_HydroTechs)
-    dtr.sets[:Nodes_NotBaseLoad] = Nodes_NotBaseLoad
-
     Nodes_RampingTechs = dtr.sets[:Nodes_RampingTechs]
 
     # Synchronous condensers
@@ -250,8 +244,7 @@ function build_model!(dtr::DieterModel)
             N_REZ_EXP_TX[REZones], (base_name=shorter["REZ_expand_by_transmission"], lower_bound=0) # Units: MW; Free REZ transmission capacity built when tranmission network is expanded
             N_STO_E[Nodes_Storages], (base_name=shorter["Storage_build_energy"], lower_bound=0) # Units: MWh; Storage energy technology built
             N_STO_P[Nodes_Storages], (base_name=shorter["Storage_capacity"], lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
-            N_SYNC[Nodes_SynCons], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MWs; synchronous condenser capacity (in MW)
-            IN_TxZ[TxZones,Hours], (base_name=shorter["Inertia_level"], lower_bound=0)  # UnitsL MWs; level of inertia in a transmission zone within a given hour.
+            N_SYNC[Nodes_SynCons], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MW; synchronous condenser capacity
             FLOW[Arcs,Hours], (base_name=shorter["Internodal_flow"]) # Units: MWh; Power flow between nodes in topology
             N_IC_EXP[Arcs], (base_name=shorter["Internodal_flow_expansion"], lower_bound=0) # Units: MW; Power flow expansion betweeen TxZones, and REZones to TxZones
             #
@@ -942,8 +935,8 @@ function generate_results!(dtr::DieterModel)
     vars = [
         :Z => [],
         :G => [:Nodes_Techs, :Hours],
-        :G_UP => [:Nodes_Dispatch, :Hours],
-        :G_DO => [:Nodes_Dispatch, :Hours],
+        # :G_UP => [:Nodes_Dispatch, :Hours],
+        # :G_DO => [:Nodes_Dispatch, :Hours],
         :G_REZ => [:REZones,:Hours],
         :G_TxZ => [:TxZones,:Hours],
         # :G_INF => [:Nodes,:Hours],
@@ -955,17 +948,18 @@ function generate_results!(dtr::DieterModel)
         :N_STO_E => [:Nodes_Storages],
         :N_STO_P => [:Nodes_Storages],
         :N_REZ_EXP => [:REZones],
-        :N_REZ_EXP_TX => [:REZones],
+        # :N_REZ_EXP_TX => [:REZones],
         :N_SYNC => [:Nodes_SynCons],
         :FLOW => [:Arcs,:Hours],
-        :IN_TxZ => [:TxZones,:Hours],
+        # :IN_TxZ => [:TxZones,:Hours],
+        # :IN_REZ => [:REZones,:Hours],
         :N_IC_EXP => [:Arcs],
 
-        :EV_CHARGE => [:EV, :Hours],
-        :EV_DISCHARGE => [:EV, :Hours],
-        :EV_L => [:EV, :Hours],
-        :EV_PHEVFUEL => [:EV, :Hours],
-        :EV_INF => [:EV, :Hours],
+        # :EV_CHARGE => [:EV, :Hours],
+        # :EV_DISCHARGE => [:EV, :Hours],
+        # :EV_L => [:EV, :Hours],
+        # :EV_PHEVFUEL => [:EV, :Hours],
+        # :EV_INF => [:EV, :Hours],
 
         :H2_P2G => [:Nodes_P2G, :Hours],
         :H2_G2P => [:Nodes_G2P, :Hours],
@@ -976,9 +970,9 @@ function generate_results!(dtr::DieterModel)
         :N_G2P => [:Nodes_G2P],
         :N_GS => [:Nodes_GasStorages],
 
-        :HEAT_STO_L => [:BU, :HP, :Hours],
-        :HEAT_HP_IN => [:BU, :HP, :Hours],
-        :HEAT_INF => [:BU, :HP, :Hours]
+        # :HEAT_STO_L => [:BU, :HP, :Hours],
+        # :HEAT_HP_IN => [:BU, :HP, :Hours],
+        # :HEAT_INF => [:BU, :HP, :Hours]
     ]
 
     m = dtr.model
