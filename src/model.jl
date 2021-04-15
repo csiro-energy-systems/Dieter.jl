@@ -929,61 +929,14 @@ function solve_model!(dtr::DieterModel,solver)
     return dtr
 end
 
-function generate_results!(dtr::DieterModel)
+function generate_results!(dtr::DieterModel,varNamesDict::Dict{Symbol,Array{Symbol,1}})
     @info "Storing results"
 
-    vars = [
-        :Z => [],
-        :G => [:Nodes_Techs, :Hours],
-        # :G_UP => [:Nodes_Dispatch, :Hours],
-        # :G_DO => [:Nodes_Dispatch, :Hours],
-        :G_REZ => [:REZones,:Hours],
-        :G_TxZ => [:TxZones,:Hours],
-        # :G_INF => [:Nodes,:Hours],
-        # :CU => [:Nodes_NonDispatch, :Hours],
-        :STO_IN => [:Nodes_Storages, :Hours],
-        :STO_OUT => [:Nodes_Storages, :Hours],
-        :STO_L => [:Nodes_Storages, :Hours],
-        :N_TECH => [:Nodes_Techs],
-        :N_STO_E => [:Nodes_Storages],
-        :N_STO_P => [:Nodes_Storages],
-        :N_REZ_EXP => [:REZones],
-        # :N_REZ_EXP_TX => [:REZones],
-        :N_SYNC => [:Nodes_SynCons],
-        :FLOW => [:Arcs,:Hours],
-        # :IN_TxZ => [:TxZones,:Hours],
-        # :IN_REZ => [:REZones,:Hours],
-        :N_IC_EXP => [:Arcs],
+    mo = dtr.model.obj_dict
 
-        # :EV_CHARGE => [:EV, :Hours],
-        # :EV_DISCHARGE => [:EV, :Hours],
-        # :EV_L => [:EV, :Hours],
-        # :EV_PHEVFUEL => [:EV, :Hours],
-        # :EV_INF => [:EV, :Hours],
-
-        :H2_P2G => [:Nodes_P2G, :Hours],
-        :H2_G2P => [:Nodes_G2P, :Hours],
-        :H2_GS_L => [:Nodes_GasStorages, :Hours],
-        :H2_GS_IN => [:Nodes_GasStorages, :Hours],
-        :H2_GS_OUT => [:Nodes_GasStorages, :Hours],
-        :N_P2G => [:Nodes_P2G],
-        :N_G2P => [:Nodes_G2P],
-        :N_GS => [:Nodes_GasStorages],
-
-        # :HEAT_STO_L => [:BU, :HP, :Hours],
-        # :HEAT_HP_IN => [:BU, :HP, :Hours],
-        # :HEAT_INF => [:BU, :HP, :Hours]
-    ]
-
-    m = dtr.model
-
-    model_dict = m.obj_dict
-
-    dtr.results = Dict(v[1] =>
-        convert_jump_container_to_df(model_dict[v[1]],
-            dim_names=convert(Vector{Symbol},v[2])) for v in vars)
+    dtr.results = Dict(v[1] => convert_jump_container_to_df(mo[v[1]], dim_names=v[2]) for v in varNamesDict)
             # value_col=v[1])
-    # dtr.results = [convert_jump_container_to_df(value.(model_dict[v[1]]), dim_names=v[2]) for v in vars]
+    # dtr.results = [convert_jump_container_to_df(value.(model_dict[v[1]]), dim_names=v[2]) for v in varNamesDict]
 
     # if abs(sum(dtr.results[:G_INF][!, :Value]))  > (1e-5) ||
     #    ( !ismissing(dtr.settings[:ev]) &&
@@ -991,5 +944,5 @@ function generate_results!(dtr::DieterModel)
     #       @warn "Problem might be infeasable"
     # end
 
-    return vars
+    return nothing
 end
