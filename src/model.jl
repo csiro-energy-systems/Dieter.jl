@@ -85,13 +85,10 @@ function build_model!(dtr::DieterModel)
 
     Nodes_Demand = dtr.sets[:Nodes_Demand]
 
-    Nodes_CoalTechs = dtr.sets[:Nodes_CoalTechs]
-    Nodes_HydroTechs = dtr.sets[:Nodes_HydroTechs]
-    Nodes_PumpedHydro = dtr.sets[:Nodes_PumpedHydro]
-    Nodes_NotBaseLoad =  setdiff(Nodes_Dispatch, Nodes_CoalTechs) # , Nodes_HydroTechs)
-    dtr.sets[:Nodes_NotBaseLoad] = Nodes_NotBaseLoad
-
     Nodes_RampingTechs = dtr.sets[:Nodes_RampingTechs]
+
+    # Synchronous condensers
+    Nodes_SynCons = dtr.sets[:Nodes_SynCons]
 
     ## Electric Vehicles
     EV = dtr.sets[:ElectricVehicles]
@@ -127,12 +124,7 @@ function build_model!(dtr::DieterModel)
     CarbonContent = dtr.parameters[:CarbonContent] # Units: t-CO2/MWh-thermal; CO2 equivalent content per unit fuel used by tech.
     CarbonBudget = dtr.settings[:carbon_budget] # Units: t-CO2
 
-    InertialSecs = dtr.parameters[:InertialCoeff]
-    InertialSecsSto = dtr.parameters[:InertialCoeffSto]
-    InertiaMinThreshold = dtr.parameters[:InertiaMinThreshold]
-    InertiaMinSecure = dtr.parameters[:InertiaMinSecure]
-    RequireRatio = dtr.parameters[:RequireRatio]
-    SynConCapCost = dtr.parameters[:SynConCapCost]
+    InvestmentCostSynCon = dtr.parameters[:InvestmentCostSynCon]
 
     OperatingReserve = dtr.parameters[:OperatingReserve] # Units: MW; Regional operating reserve requirement (e.g. within state)
     MinStableGen = dtr.parameters[:MinStableGen] # Units: [0,1]; Minimum stable operational level for generation as fraction of Capacity in MW.
@@ -252,8 +244,7 @@ function build_model!(dtr::DieterModel)
             N_REZ_EXP_TX[REZones], (base_name=shorter["REZ_expand_by_transmission"], lower_bound=0) # Units: MW; Free REZ transmission capacity built when tranmission network is expanded
             N_STO_E[Nodes_Storages], (base_name=shorter["Storage_build_energy"], lower_bound=0) # Units: MWh; Storage energy technology built
             N_STO_P[Nodes_Storages], (base_name=shorter["Storage_capacity"], lower_bound=0) # Units: MW; Storage loading and discharging power capacity built
-            N_SYNC[DemandRegions], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MWs; synchronous condenser capacity (in MW x seconds) for each demand region
-            IN_TxZ[TxZones,Hours], (base_name=shorter["Inertia_level"], lower_bound=0)  # UnitsL MWs; level of inertia in a transmission zone within a given hour.
+            N_SYNC[Nodes_SynCons], (base_name=shorter["SynCon_capacity"], lower_bound=0) # Units: MW; synchronous condenser capacity
             FLOW[Arcs,Hours], (base_name=shorter["Internodal_flow"]) # Units: MWh; Power flow between nodes in topology
             N_IC_EXP[Arcs], (base_name=shorter["Internodal_flow_expansion"], lower_bound=0) # Units: MW; Power flow expansion betweeen TxZones, and REZones to TxZones
             #
@@ -312,7 +303,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
             + sum(InvestmentCostPower[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages_New)
             + sum(InvestmentCostEnergy[n,sto] * N_STO_E[(n,sto)] for (n,sto) in Nodes_Storages_New)
 
-            + SynConCapCost["SynConNew"] * sum(N_SYNC[dr] for dr in DemandRegions)
+            + sum(InvestmentCostSynCon[n,syn] * N_SYNC[(n,syn)] for (n,syn) in Nodes_SynCons)
 
             + sum(FixedCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs)
             + sum(FixedCost[n,sto] * N_STO_P[(n,sto)] for (n,sto) in Nodes_Storages)
@@ -518,47 +509,6 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
             # sum(G[(n,t),h] for h in Hours) >= MinStableGen[n,t]*length(Hours) )
     end
 
-    # Inertia requirements
-    @info "Definition of inertia book-keeping variables"
-    @constraint(m, TxZoneInertia[zone=TxZones,h=Hours],
-        IN_TxZ[zone,h] ==
-            sum(InertialSecs[t] * G[(n,t),h] for (n,t) in Nodes_NotBaseLoad if n == zone)
-         +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_CoalTechs if n == zone)
-        #  +  sum(InertialSecs[t] * CapacityDerating[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_HydroTechs if (n, zone) in Nodes_Promotes)
-    );
-
-    @info "Minimum inertia threshold levels"
-    @constraint(m, InertiaNormalThreshold[dr=DemandRegions, h=Hours],
-        (N_SYNC[dr] + CapAdd[:N_SYNC][dr]) + sum(IN_TxZ[zone,h] for zone in TxZones if node2DemReg[zone] == dr) >= InertiaMinThreshold[dr]*RequireRatio[dr]
-    );
-
-    @info "Secure inertia requirement levels"
-    @constraint(m, InertiaSecureRequirement[dr=DemandRegions, h=Hours],
-        (N_SYNC[dr] + CapAdd[:N_SYNC][dr]) + sum(IN_TxZ[zone,h] for zone in TxZones if node2DemReg[zone] == dr)
-          + sum(InertialSecs[t] * Availability[n,t,h] * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr) 
-          + sum(InertialSecsSto[n,sto]*(N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)]) 
-                    for (n,sto) in setdiff(Nodes_Storages, Nodes_PumpedHydro) if node2DemReg[n] == dr)
-          + sum(InertialSecsSto[n,sto]*STO_OUT[(n,sto),h]
-                    for (n,sto) in Nodes_PumpedHydro if node2DemReg[n] == dr)
-                >= InertiaMinSecure[dr]*RequireRatio[dr]
-    );
-
-    # @info "System strength: zone fault contributions"  # FS - "fault strength"
-    # @constraint(m, SystemStrengthContrib[zone=DemandZones, h=Hours],
-    #     FS_TxZ[zone,h] = sum(ShortCircuitMultiplier[n,t]*G[(n,t),h]
-    #         for (n,t) in Nodes_Techs if n == zone )
-    #   + sum(ShortCircuitMultiplier[n,t]*N_STO_P[(n,t)]
-    #         for (n,sto) in Nodes_Storages in n == zone)
-    # );
-
-    # @info "System strength: system fault requirement"
-    # @constraint(m, SystemStrengthFaultReq[zone=DemandZones, h=Hours],
-    #     FS_TxZ[zone,h] + 
-    #     sum(Derating[zoneAdj]*FS_TxZ[zoneAdj,h]
-    #         for (from,to) in Arcs if ( (from == zone) && (to == zoneAdj) ))
-    #     >= FaultReqMinimum[zone]
-    # );
-        
 #=
     @info "Carbon budget upper limit (annual)"
     @constraint(m, CarbonBudgetLimit,
@@ -979,60 +929,14 @@ function solve_model!(dtr::DieterModel,solver)
     return dtr
 end
 
-function generate_results!(dtr::DieterModel)
+function generate_results!(dtr::DieterModel,varNamesDict::Dict{Symbol,Array{Symbol,1}})
     @info "Storing results"
 
-    vars = [
-        :Z => [],
-        :G => [:Nodes_Techs, :Hours],
-        :G_UP => [:Nodes_Dispatch, :Hours],
-        :G_DO => [:Nodes_Dispatch, :Hours],
-        :G_REZ => [:REZones,:Hours],
-        :G_TxZ => [:TxZones,:Hours],
-        # :G_INF => [:Nodes,:Hours],
-        # :CU => [:Nodes_NonDispatch, :Hours],
-        :STO_IN => [:Nodes_Storages, :Hours],
-        :STO_OUT => [:Nodes_Storages, :Hours],
-        :STO_L => [:Nodes_Storages, :Hours],
-        :N_TECH => [:Nodes_Techs],
-        :N_STO_E => [:Nodes_Storages],
-        :N_STO_P => [:Nodes_Storages],
-        :N_REZ_EXP => [:REZones],
-        :N_REZ_EXP_TX => [:REZones],
-        :N_SYNC => [:DemandRegion],
-        :FLOW => [:Arcs,:Hours],
-        :IN_TxZ => [:TxZones,:Hours],
-        :N_IC_EXP => [:Arcs],
+    mo = dtr.model.obj_dict
 
-        :EV_CHARGE => [:EV, :Hours],
-        :EV_DISCHARGE => [:EV, :Hours],
-        :EV_L => [:EV, :Hours],
-        :EV_PHEVFUEL => [:EV, :Hours],
-        :EV_INF => [:EV, :Hours],
-
-        :H2_P2G => [:Nodes_P2G, :Hours],
-        :H2_G2P => [:Nodes_G2P, :Hours],
-        :H2_GS_L => [:Nodes_GasStorages, :Hours],
-        :H2_GS_IN => [:Nodes_GasStorages, :Hours],
-        :H2_GS_OUT => [:Nodes_GasStorages, :Hours],
-        :N_P2G => [:Nodes_P2G],
-        :N_G2P => [:Nodes_G2P],
-        :N_GS => [:Nodes_GasStorages],
-
-        :HEAT_STO_L => [:BU, :HP, :Hours],
-        :HEAT_HP_IN => [:BU, :HP, :Hours],
-        :HEAT_INF => [:BU, :HP, :Hours]
-    ]
-
-    m = dtr.model
-
-    model_dict = m.obj_dict
-
-    dtr.results = Dict(v[1] =>
-        convert_jump_container_to_df(model_dict[v[1]],
-            dim_names=convert(Vector{Symbol},v[2])) for v in vars)
+    dtr.results = Dict(v[1] => convert_jump_container_to_df(mo[v[1]], dim_names=v[2]) for v in varNamesDict)
             # value_col=v[1])
-    # dtr.results = [convert_jump_container_to_df(value.(model_dict[v[1]]), dim_names=v[2]) for v in vars]
+    # dtr.results = [convert_jump_container_to_df(value.(model_dict[v[1]]), dim_names=v[2]) for v in varNamesDict]
 
     # if abs(sum(dtr.results[:G_INF][!, :Value]))  > (1e-5) ||
     #    ( !ismissing(dtr.settings[:ev]) &&
@@ -1040,5 +944,5 @@ function generate_results!(dtr::DieterModel)
     #       @warn "Problem might be infeasable"
     # end
 
-    return vars
+    return nothing
 end
