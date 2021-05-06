@@ -921,8 +921,7 @@ function build_heat_load_constraints(dtr::DieterModel)
 end
 
 function solve_model!(dtr::DieterModel,solver)
-    @info "Setting solver to $(solver)..."
-    set_optimizer(dtr.model, solver)
+
     @info "Starting optimization..."
     JuMP.optimize!(dtr.model)
 
