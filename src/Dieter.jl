@@ -42,17 +42,6 @@ const infeas_cost = 1000     # Currency (cost)
 
 include("model.jl")
 
-# %%
-include("analysis.jl")
-
-# %%
-# include("save.jl")
-
-# %%
-# include("merge.jl")
-
-# %
-# include("summary_plot.jl")
 
 # %%
 export DieterModel,
@@ -64,17 +53,6 @@ parse_data_to_model!,
 build_model!,
 solve_model!,
 generate_results!
-
-# summarize_result,
-# save_results,
-# post_process_results,
-# plot_generation_investments,
-# plot_storage_investments,
-# plot_curtailment,
-# plot_all,
-# get_result,
-# c_gradient,
-# create_filter_dict
 
 # The following code is taken from PowerModels.jl:
 # the follow items are also exported for user-friendliness when calling
