@@ -34,7 +34,7 @@ dieter_path=joinpath(ENV["HOME],"Dieter")
 In the `julia` REPL, run
 ```julia
 import Pkg
-Pkg.add(PackageSpec(path=dieter_path; rev="dev"))
+Pkg.add(Pkg.PackageSpec(path=dieter_path; rev="dev"))
 ```
 The argument `rev="dev"` selects the git branch to use; change this to use your own alternative branch as required.
 
