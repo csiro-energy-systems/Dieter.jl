@@ -28,7 +28,7 @@ General utility functions for handling `DataFrame`s, `Dict`s and translations fr
 
 To install this as a Julia module, download this repository to a sub-folder in, for example, your home folder e.g. 
 ```julia 
-dieter_path=joinpath(ENV["HOME],"Dieter")
+dieter_path=joinpath(ENV["HOME"],"Dieter")
 ```
 
 In the `julia` REPL, run
