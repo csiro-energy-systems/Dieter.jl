@@ -65,7 +65,7 @@ function create_relation(df::DataFrame,First::Symbol,Second::Symbol,
 
     func(x,y) =
         begin
-            r = @where(df, :($First) .== x, :($Second) .== y)
+            r = @subset(df, :($First) .== x, :($Second) .== y)
             return sum(r[:,:($Indicator)]) > 0  ## This could be some other criteron for a relation existing:
             #  TODO allow user to pass the criterion function as an argument
         end

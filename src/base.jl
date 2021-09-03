@@ -156,7 +156,7 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
             fileDict["fuel_prices_h2"] = joinpath(datapath,"base","fuel_prices_h2.sql")
             dfDict["fuel_prices_h2"] = parse_file(fileDict["fuel_prices_h2"]; dataname=fuel_prices_sql_db_path)
             
-            df_fuel_h2 = @where(dfDict["fuel_prices_h2"],:TechID .== H2_Cost_Tech_Map["N_RecipH2"])
+            df_fuel_h2 = @subset(dfDict["fuel_prices_h2"],:TechID .== H2_Cost_Tech_Map["N_RecipH2"])
             # Rename the InstanceYear column as `:FuelCost`:
             select!(df_fuel_h2,:Region, (InstanceYear_Sym => :FuelCost))
             h2_fuel_dict = Dict(eachrow(df_fuel_h2))
@@ -203,9 +203,9 @@ function parse_nodes!(dtr::DieterModel, df::DataFrame)
     # dtr.sets[:Regions] = disallowmissing(unique(df[!, :Region]))
 
     # Obtain the Transmission Zones
-    dtr.sets[:TxZones] = (@where(df,:NodeType .== "TxZone"))[!,:Nodes]
+    dtr.sets[:TxZones] = (@subset(df,:NodeType .== "TxZone"))[!,:Nodes]
     # Obtain the Renewable Energy Zones
-    dtr.sets[:REZones] = (@where(df,:NodeType .== "REZone"))[!,:Nodes]
+    dtr.sets[:REZones] = (@subset(df,:NodeType .== "REZone"))[!,:Nodes]
 
     # Equate Demand Zones to Transmission Zones
     dtr.sets[:DemandZones] = dtr.sets[:TxZones]
