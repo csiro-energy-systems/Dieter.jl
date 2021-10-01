@@ -16,15 +16,15 @@ function parse_data_to_model!(dtr::AbstractDieterModel; dataname::AbstractString
     ## Base data
 
     dfDict["nodes"] = parse_file(fileDict["nodes"]; dataname=dataname)
-    parse_nodes!(dtr,dfDict["nodes"])
+    parse_nodes!(dtr)
 
     # e.g. fileDict["tech"] = joinpath(datapath,"base","technologies.csv")
     dfDict["tech"] = parse_file(fileDict["tech"]; dataname=dataname)
-    parse_base_technologies!(dtr, dfDict["tech"])
+    parse_base_technologies!(dtr)
 
     # e.g. fileDict["storage"] = joinpath(datapath,"base","storages.csv")
     dfDict["storage"] = parse_file(fileDict["storage"]; dataname=dataname)
-    parse_storages!(dtr, dfDict["storage"])
+    parse_storages!(dtr)
 
     # e.g. fileDict["load"] = joinpath(datapath,"base","load.csv")
     dfDict["load"] = parse_file(fileDict["load"]; dataname=dataname)
@@ -32,7 +32,7 @@ function parse_data_to_model!(dtr::AbstractDieterModel; dataname::AbstractString
 
     # e.g. fileDict["avail"] = joinpath(datapath,"base","availability.csv")
     dfDict["avail"] = parse_file(fileDict["avail"]; dataname=dataname)
-    parse_availibility!(dtr,dfDict["avail"])
+    parse_availibility!(dtr)
 
     # Relations (i.e set-to-set correspondences)
     dfDict["map_node_demand"] = parse_file(fileDict["map_node_demand"]; dataname=dataname)
@@ -41,7 +41,7 @@ function parse_data_to_model!(dtr::AbstractDieterModel; dataname::AbstractString
     dfDict["arcs"] = parse_file(fileDict["arcs"]; dataname=dataname)
     initialise_set_relation_data!(dtr)
     parse_set_relations!(dtr)
-    STABLE.parse_arcs!(dtr,dfDict["arcs"])
+    STABLE.parse_arcs!(dtr)
 
     # Calculated base parameters
     calc_base_parameters!(dtr)
@@ -192,10 +192,12 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
     return nothing
 end
 
-#   e.g.  df = dfDict["nodes"]
+# Expected input e.g.  df = dtr.data["dataframes"]["nodes"]
 # Columns: | Nodes │ NodeType │ NodePromote │ DemandRegion | IncludeLevel |
 # Expected that NodeType has (at least) entries including ["TxZone", "REZone"]
-function parse_nodes!(dtr::DieterModel, df::DataFrame)
+function parse_nodes!(dtr::DieterModel)
+
+    df = dtr.data["dataframes"]["nodes"]
 
     dtr.sets[:Nodes] = disallowmissing(unique(df[!, :Nodes]))
     dtr.sets[:NodeType] = disallowmissing(unique(df[!, :NodeType]))
@@ -227,9 +229,10 @@ MaxCapacity, MaxEnergy,
 TechTypeCategory, Renewable, Dispatchable,
 FuelSource, Efficiency, CarbonContent, CO2_price
 """
-function parse_base_technologies!(dtr::DieterModel, df::DataFrame)
-# function parse_base_technologies!(dtr::DieterModel, path::AbstractString)
-    # df = CSV.read(path)
+function parse_base_technologies!(dtr::DieterModel)
+
+    df = dtr.data["dataframes"]["tech"]
+
     dtr.sets[:Technologies] = disallowmissing(unique(df[!, :Technologies]))
 
     dtr.sets[:Renewables] = disallowmissing(unique([row[:Technologies] for row in eachrow(df)
@@ -263,9 +266,10 @@ function parse_base_technologies!(dtr::DieterModel, df::DataFrame)
     return nothing
 end
 
-function parse_storages!(dtr::DieterModel, df::DataFrame)
-# function parse_storages!(dtr::DieterModel, path::AbstractString)
-    # df = CSV.read(path)
+function parse_storages!(dtr::DieterModel)
+
+    df = dtr.data["dataframes"]["storage"]
+
     dtr.sets[:Storages] = disallowmissing(unique(df[!,:Storages]))
 
     params = map_idcol(df, [:Region, :Storages], skip_cols=Symbol[])
@@ -286,9 +290,6 @@ function parse_storages!(dtr::DieterModel, df::DataFrame)
 end
 
 function parse_load!(dtr::DieterModel, df::DataFrame)
-# function parse_load!(dtr::DieterModel, path::AbstractString)
-    # df = CSV.read(path)
-    # dtr.parameters[:Load] = disallowmissing(df[!,:Load])  ## TODO ?? Construct as Dict, not array ?
 
     params = map_idcol(df, [:Nodes, :TimeIndex], skip_cols=Symbol[])
     # params = map_idcol(df, [:DemandRegion, :TimeIndex], skip_cols=Symbol[])
@@ -297,11 +298,9 @@ function parse_load!(dtr::DieterModel, df::DataFrame)
     return nothing
 end
 
-function parse_availibility!(dtr::DieterModel, df::DataFrame)
-# function parse_availibility!(dtr::DieterModel, path::AbstractString)
-    # params = CSV.read(path) |> map_dfheader_to_col
-    # params = map_dfheader_to_col(df)
-    # update_dict!(dtr.parameters, :Availability, params)
+function parse_availibility!(dtr::DieterModel)
+
+    df = dtr.data["dataframes"]["avail"]
 
     params = map_idcol(df, [:RenewRegionID, :TechTypeID, :TimeIndex], skip_cols=Symbol[])
     for (k,v) in params update_dict!(dtr.parameters, k, v) end
@@ -419,7 +418,9 @@ function parse_set_relations!(dtr)
 
 end
 
-function parse_arcs!(dtr::DieterModel, df::DataFrame)
+function parse_arcs!(dtr::DieterModel)
+
+    df = dtr.data["dataframes"]["arcs"]
 
     Nodes = dtr.sets[:Nodes]
 
