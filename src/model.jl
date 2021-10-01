@@ -57,8 +57,8 @@ function build_model!(dtr::DieterModel)
     Arcs_From = dtr.sets[:Arcs_From]
     Arcs_REZones = dtr.sets[:Arcs_REZones]  # Connections between REZones and TxZones
 
-    ArcREZpairing = dtr.parameters[:ArcREZpairing]
-    Arcs_REZ_Pairs = intersect(Arcs,keys(ArcREZpairing))  # Filter pairings by allowed arcs
+    # ArcREZpairing = dtr.parameters[:ArcREZpairing]
+    # Arcs_REZ_Pairs = intersect(Arcs,keys(ArcREZpairing))  # Filter pairings by allowed arcs
 
     Nodes_Techs = dtr.sets[:Nodes_Techs]
     Nodes_Storages = dtr.sets[:Nodes_Storages]
