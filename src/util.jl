@@ -79,8 +79,13 @@ function update_dict!(dict::Dict{Symbol,Dict}, key::Symbol, val::Dict)
         # @warn "This function expects the value $val to be of type Dict"
     # end
     if haskey(dict, key)
-        merge!(dict[key], val) # Error if dict[key] & val are not Dict types
-        # merge!(dict, Dict(key => val))
+        try 
+            merge!(dict[key], val) # Error if dict[key] & val are not Dict types
+            # merge!(dict, Dict(key => val))
+        catch e
+            @warn "Merge of Dict failed for the key $(key)."
+            throw(e)
+        end
     else
         push!(dict, key => val)
     end
