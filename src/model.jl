@@ -11,7 +11,7 @@ and 4 for 2-hourly steps. The data must match the time-steps of the `Timestep` p
 """
 function build_model!(dtr::DieterModel)
 
-    dtr.model = Model()
+    dtr.model = Model(dtr.settings[:solver]; bridge_constraints = false)
 
     m = dtr.model
 
