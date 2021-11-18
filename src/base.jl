@@ -130,17 +130,17 @@ function parse_extensions!(dtr::AbstractDieterModel; dataname::AbstractString=""
         H2RecipEngTypes = tech_types[:H2RecipEngTypes]
 
         ## Map OvernightCost data into table
+        @info "H2 Technology cost overwritten with scenario values."
         dfDict["h2_technologies"] = @eachrow dfDict["h2_technologies"] begin
             if :H2Technologies in keys(ScenCostPower)
                 :H2OvernightCost = ScenCostPower[:H2Technologies]
                 h2_electrolyser = :H2Technologies
                 region = :Region
-                @info "H2 Technology ($(h2_electrolyser)) cost was overwritten in $(region) with scenario value $(ScenCostPower[h2_electrolyser])."
+                # @info "H2 Technology ($(h2_electrolyser)) cost was overwritten in $(region) with scenario value $(ScenCostPower[h2_electrolyser])."
+            # else
+            #     @warn "H2 Electrolyser ($(h2_electrolyser)) cost was NOT overwritten by scenario value"
             end
         end
-        # else
-        #     @warn "H2 Electrolyser ($(h2_electrolyser)) cost was NOT overwritten by scenario value"
-        # end
 
         parse_h2_technologies!(dtr, dfDict["h2_technologies"])
 
