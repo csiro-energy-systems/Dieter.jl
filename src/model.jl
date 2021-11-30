@@ -769,7 +769,10 @@ function build_h2_constraints(dtr::DieterModel)
 
     CapAdd = dtr.parameters[:CapAdd]
 
-    Capacity_Factor_AE = dtr.settings[:capacity_factor_ae] # e.g 0.8 means must produce at least 80% of hourly quota each hour.
+    AE_Capacity_Factor_LB = dtr.settings[:ae_capacity_factor_lb] # e.g 0.2 means must produce at least 20% of hourly quota each hour.
+    PEM_Capacity_Factor_LB = dtr.settings[:pem_capacity_factor_lb]
+
+    H2_P2G_Capacity_Factor_UB = dtr.settings[:h2_p2g_capacity_factor_ub]
 
     # if dtr.settings[:H2_G2P_Allowed_flag] == true
     RecipH2_CF_UB = dtr.settings[:capacity_factor_recipH2_ub]
@@ -798,12 +801,17 @@ function build_h2_constraints(dtr::DieterModel)
 
     @info "Hydrogen: Constant hourly lower bound on power-to-gas for AE tech."
     @constraint(dtr.model, MinHourlyP2G_AE[(n,p2g)=Nodes_P2G_AE, h=Hours],
-        H2_P2G[(n,p2g),h] >= Capacity_Factor_AE*(H2Demand[n,p2g]/periods)
+        H2_P2G[(n,p2g),h] >= AE_Capacity_Factor_LB*(H2Demand[n,p2g]/periods)
+    );
+
+    @info "Hydrogen: Constant hourly lower bound on power-to-gas for PEM tech."
+    @constraint(dtr.model, MinHourlyP2G_PEM[(n,p2g)=Nodes_P2G_PEM, h=Hours],
+        H2_P2G[(n,p2g),h] >= PEM_Capacity_Factor_LB*(H2Demand[n,p2g]/periods)
     );
 
     @info "Hydrogen: Variable upper bound on power-to-gas."
     @constraint(dtr.model, MaxP2G[(n,p2g)=Nodes_P2G,h=Hours],
-        H2_P2G[(n,p2g),h] <= time_ratio * (N_P2G[(n,p2g)] + CapAdd[:N_P2G][(n,p2g)])
+        H2_P2G[(n,p2g),h] <= time_ratio * H2_P2G_Capacity_Factor_UB * (N_P2G[(n,p2g)] + CapAdd[:N_P2G][(n,p2g)])
     );
 
     @info "Hydrogen: Variable upper bound on gas-to-power."
