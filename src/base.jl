@@ -302,6 +302,17 @@ function parse_availibility!(dtr::DieterModel)
 
     df = dtr.data["dataframes"]["avail"]
 
+    ## Checks
+    if !isempty(setdiff([:RenewRegionID, :TechTypeID, :TimeIndex, :Availability], propertynames(df)))
+        @error "Required columns were not found in the passed dataframe."
+    end
+
+    if any(df[:,:Availability] .< 0)
+        error("Negative availability factor values found in column :Availability from dtr.data[\"dataframes\"][\"avail\"].")
+    elseif any(df[:,:Availability] .> 1)
+        error("Availability factor values greater than 1 found in column :Availability from dtr.data[\"dataframes\"][\"avail\"].")
+    end
+
     params = map_idcol(df, [:RenewRegionID, :TechTypeID, :TimeIndex], skip_cols=Symbol[])
     for (k,v) in params update_dict!(dtr.parameters, k, v) end
 
