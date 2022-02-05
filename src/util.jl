@@ -49,8 +49,9 @@ and a third Indicator column-name is used to indicate set membership.
 The return type is a function that can be used with two "sets" A and B in
 `tuple2_filter(func,A,B) = filter(x->func(x[1],x[2]), [(a,b) for a in A for b in B])`
 """
-function create_relation(df::DataFrame,First::Symbol,Second::Symbol,
-                Indicator::Symbol) # ; criterion=testfunc_returns_bool
+function create_relation(df::DataFrame,
+            First::Symbol,Second::Symbol, Indicator::Symbol;
+            predicate=(x -> sum(x) > 0)) # Note default criterion is the sum is positive.
 
     if !(String(First) in names(df))
         @error "The symbol $First must be a valid name of the DataFrame."
@@ -60,16 +61,14 @@ function create_relation(df::DataFrame,First::Symbol,Second::Symbol,
         @error "The symbol $Indicator must be a valid name of the DataFrame."
     end
 
-    # FirstType = eltype(df[!,:($First)])
-    # SecondType   = eltype(df[!,:($Second)])
-
-    func(x,y) =
-        begin
-            r = @subset(df, :($First) .== x, :($Second) .== y)
-            return sum(r[:,:($Indicator)]) > 0  ## This could be some other criteron for a relation existing:
-            #  TODO allow user to pass the criterion function as an argument
-        end
-
+    func(x1,x2) =
+            begin
+                df_sub = subset(df[:,[First,Second,Indicator]],
+                                First     => y1 -> y1 .== x1,
+                                Second    => y2 -> y2 .== x2,
+                                Indicator =>  z -> predicate.(z))
+                return !isempty(df_sub)
+            end
     return func
 end
 
