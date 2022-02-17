@@ -298,7 +298,7 @@ function parse_load!(dtr::DieterModel, df::DataFrame)
     return nothing
 end
 
-function parse_availibility!(dtr::DieterModel)
+function parse_availibility!(dtr::DieterModel; check_normalisation::Bool=true)
 
     df = dtr.data["dataframes"]["avail"]
 
@@ -309,8 +309,11 @@ function parse_availibility!(dtr::DieterModel)
 
     if any(df[:,:Availability] .< 0)
         error("Negative availability factor values found in column :Availability from dtr.data[\"dataframes\"][\"avail\"].")
-    elseif any(df[:,:Availability] .> 1)
+    elseif check_normalisation && any(df[:,:Availability] .> 1)
+        @info "Checking for whether availability factor values are no greater than 1."
         error("Availability factor values greater than 1 found in column :Availability from dtr.data[\"dataframes\"][\"avail\"].")
+    elseif !(check_normalisation)
+        @info "Skipping check for whether availability factor values are no greater than 1."
     end
 
     params = map_idcol(df, [:RenewRegionID, :TechTypeID, :TimeIndex], skip_cols=Symbol[])
