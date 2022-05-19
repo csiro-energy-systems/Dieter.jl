@@ -12,6 +12,7 @@ and 4 for 2-hourly steps. The data must match the time-steps of the `Timestep` p
 function build_model!(dtr::DieterModel)
 
     dtr.model = Model(dtr.settings[:solver]; add_bridges = false)
+    # Keyword: add_bridges = [false | true]; `false` helps performance since this is an LP.
 
     m = dtr.model
 
@@ -121,8 +122,8 @@ function build_model!(dtr::DieterModel)
     Efficiency = dtr.parameters[:Efficiency] # Units: [0,1]; Combustion/Storage roundtrip efficiency
     StartLevel = dtr.parameters[:StartLevel] # Units: [0,1]; Initial storage level as fraction of storage energy installed
 
-    CarbonContent = dtr.parameters[:CarbonContent] # Units: t-CO2/MWh-thermal; CO2 equivalent content per unit fuel used by tech.
-    CarbonBudget = dtr.settings[:carbon_budget] # Units: t-CO2
+    # CarbonContent = dtr.parameters[:CarbonContent] # Units: t-CO2/MWh-thermal; CO2 equivalent content per unit fuel used by tech.
+    # CarbonBudget = dtr.settings[:carbon_budget] # Units: t-CO2
 
     InvestmentCostSynCon = dtr.parameters[:InvestmentCostSynCon]
 
@@ -512,9 +513,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
 #=
     @info "Carbon budget upper limit (annual)"
     @constraint(m, CarbonBudgetLimit,
-        sum((CarbonContent[n,t]/Efficiency[n,t]) * G[(n,t),h]
-                for (n,t) in Nodes_Techs, h in Hours)
-        <= CarbonBudget
+        sum((CarbonContent[n,t]/Efficiency[n,t]) * G[(n,t),h] for (n,t) in Nodes_Techs, h in Hours) <= CarbonBudget
     );
 
     next!(prog)
