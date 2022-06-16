@@ -643,12 +643,13 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
     );
 
     # Maximum Energy to Power ratio for certain storage technologies (con4k_PHS_EtoP)
-    @info "Storage: maximum energy-to-power ratio (use time)"
+    @info "Storage: maximum energy-to-power ratio (use time): upper level"
     tol_EtoP = 0.01 ## Constraint tolerance for matching energy to power ratio
     @constraint(m, EnergyToPowerRatioUp[(n,sto)=Nodes_Storages; !(MaxEtoP_ratio[n,sto] |> ismissing)],
-        N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] <= (1 + tol_EtoP) * MaxEtoP_ratio[n,sto] * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
+    N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] <= (1 + tol_EtoP) * MaxEtoP_ratio[n,sto] * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
     );
     
+    @info "Storage: maximum energy-to-power ratio (use time): lower level"
     @constraint(m, EnergyToPowerRatioLo[(n,sto)=Nodes_Storages; !(MaxEtoP_ratio[n,sto] |> ismissing)],
         N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] >= (1 - tol_EtoP) * MaxEtoP_ratio[n,sto] * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
     );
