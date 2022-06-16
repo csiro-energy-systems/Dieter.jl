@@ -121,6 +121,7 @@ function build_model!(dtr::DieterModel)
     MaxEtoP_ratio = dtr.parameters[:MaxEnergyToPowerRatio] # Units: hours; Maximum ratio of stored energy to power delivery
     Efficiency = dtr.parameters[:Efficiency] # Units: [0,1]; Combustion/Storage roundtrip efficiency
     StartLevel = dtr.parameters[:StartLevel] # Units: [0,1]; Initial storage level as fraction of storage energy installed
+    AnnualCycleNumber = dtr.parameters[:AnnualCycleNumber] # Units: positive integer; The maximum number of cycles in a year for a storage technology.
 
     # CarbonContent = dtr.parameters[:CarbonContent] # Units: t-CO2/MWh-thermal; CO2 equivalent content per unit fuel used by tech.
     # CarbonBudget = dtr.settings[:carbon_budget] # Units: t-CO2
@@ -224,7 +225,7 @@ function build_model!(dtr::DieterModel)
                     "EV_PHEV_fuel_use" => "EV_PHEVFUEL",
                     "EV_infeasible" => "EV_INF",
                     "Heat_storage_level" => "HEAT_STO_L",
-                    "Heat_heat_pump_" => "HEAT_HP_IN",
+                    "Heat_heat_pump_in" => "HEAT_HP_IN",
                     "Heat_infeasible" => "HEAT_INF")
 
     @info "Variable definitions."
@@ -265,7 +266,7 @@ function build_model!(dtr::DieterModel)
             N_GS[Nodes_GasStorages], (base_name=shorter["H2_storage_capacity"], lower_bound=0) # Units; tonne-H2 ; Gas storage (energy) capacity
             #
             HEAT_STO_L[BU,HP,Hours], (base_name=shorter["Heat_storage_level"], lower_bound=0) # Units: MWh at a given time-interval; Heating: storage level
-            HEAT_HP_IN[BU,HP, Hours], (base_name=shorter["Heat_heat_pump_"], lower_bound=0)   # Units: MWh per time-interval; Heating: electricity demand from heat pump
+            HEAT_HP_IN[BU,HP, Hours], (base_name=shorter["Heat_heat_pump_in"], lower_bound=0)   # Units: MWh per time-interval; Heating: electricity demand from heat pump
             HEAT_INF[BU,HP, Hours], (base_name=shorter["Heat_infeasible"], lower_bound=0)  # Units: MWh per time-interval; Heating: Infeasibility term for Electric vehicle energy balance
     end)
 
@@ -646,7 +647,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
     @info "Storage: maximum energy-to-power ratio (use time): upper level"
     tol_EtoP = 0.01 ## Constraint tolerance for matching energy to power ratio
     @constraint(m, EnergyToPowerRatioUp[(n,sto)=Nodes_Storages; !(MaxEtoP_ratio[n,sto] |> ismissing)],
-    N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] <= (1 + tol_EtoP) * MaxEtoP_ratio[n,sto] * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
+        N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] <= (1 + tol_EtoP) * MaxEtoP_ratio[n,sto] * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
     );
     
     @info "Storage: maximum energy-to-power ratio (use time): lower level"
@@ -657,13 +658,18 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
     # Maximum storage outflow - no more than level of last period (con4h_maxout_lev)
     @info "Storage: maximum outflow - no more than level of last period."
     @constraint(m, MaxOutflowStorage[(n,sto)=Nodes_Storages,h=Hours2],
-         (1/sqrt(Efficiency[n,sto]))*STO_OUT[(n,sto),h] <= STO_L[(n,sto),h-1]
+        (1/sqrt(Efficiency[n,sto]))*STO_OUT[(n,sto),h] <= STO_L[(n,sto),h-1]
     );
 
     # Maximum storage inflow - no more than energy capacity minus level of last period (con4i_maxin_lev)
     @info "Storage: maximum inflow - no more than energy capacity minus level of last period"
     @constraint(m, MaxInflowStorage[(n,sto)=Nodes_Storages,h=Hours2],
-         sqrt(Efficiency[n,sto])*STO_IN[(n,sto),h] <= N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] - STO_L[(n,sto),h-1]
+        sqrt(Efficiency[n,sto])*STO_IN[(n,sto),h] <= N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] - STO_L[(n,sto),h-1]
+    );
+
+    @info "Storage: maximum annual cycles - equivalent number of full discharges less than annual cycle number."
+    @constraint(m, MaxYearlyDischargeCycles[(n,sto)=Nodes_Storages; haskey(AnnualCycleNumber,sto)],
+        sum(STO_OUT[(n,sto),h] for h in Hours) <= AnnualCycleNumber[sto] * MaxEtoP_ratio[n,sto] * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
     );
 
     next!(prog)
