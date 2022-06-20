@@ -122,6 +122,7 @@ function build_model!(dtr::DieterModel)
     Efficiency = dtr.parameters[:Efficiency] # Units: [0,1]; Combustion/Storage roundtrip efficiency
     StartLevel = dtr.parameters[:StartLevel] # Units: [0,1]; Initial storage level as fraction of storage energy installed
     AnnualCycleNumber = dtr.parameters[:AnnualCycleNumber] # Units: positive integer; The maximum number of cycles in a year for a storage technology.
+    MaximumSoC = dtr.parameters[:MaximumSoC] # Units: [0,1]; Fraction of nominal energy capacity that is available.
 
     # CarbonContent = dtr.parameters[:CarbonContent] # Units: t-CO2/MWh-thermal; CO2 equivalent content per unit fuel used by tech.
     # CarbonBudget = dtr.settings[:carbon_budget] # Units: t-CO2
@@ -582,7 +583,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
     @constraint(m, StorageLevelStart[(n,sto)=Nodes_Storages],
         STO_L[(n,sto),Hours[1]]
          ==
-        StartLevel[n,sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
+        StartLevel[n,sto] * MaximumSoC[sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
         +   sqrt(Efficiency[n,sto])*STO_IN[(n,sto), Hours[1]]
         - 1/sqrt(Efficiency[n,sto])*STO_OUT[(n,sto), Hours[1]]
     );
@@ -592,7 +593,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
     @constraint(m, StorageLevelEnd[(n,sto)=Nodes_Storages],
         STO_L[(n,sto),Hours[end]]
          ==
-        StartLevel[n,sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
+        StartLevel[n,sto] * MaximumSoC[sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
     );
 
     # @constraint(m, StorageBalanceFirstHour[(n,sto) in Nodes_Storages],
@@ -613,10 +614,10 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
         - (1/sqrt(Efficiency[n,sto]))*STO_OUT[(n,sto), h]
     );
 
-    # Storage Power Capacity (con4c_stolev_max)
-    @info "Storage power capacity."
+    # Storage Energy Capacity (con4c_stolev_max)
+    @info "Storage energy capacity."
     @constraint(m, MaxLevelStorage[(n,sto)=Nodes_Storages,h=Hours],
-        STO_L[(n,sto),h] <= (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
+        STO_L[(n,sto),h] <= MaximumSoC[sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
     );
 
     # Storage maximum inflow (con4d_maxin_sto)
@@ -664,7 +665,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
     # Maximum storage inflow - no more than energy capacity minus level of last period (con4i_maxin_lev)
     @info "Storage: maximum inflow - no more than energy capacity minus level of last period"
     @constraint(m, MaxInflowStorage[(n,sto)=Nodes_Storages,h=Hours2],
-        sqrt(Efficiency[n,sto])*STO_IN[(n,sto),h] <= N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] - STO_L[(n,sto),h-1]
+        sqrt(Efficiency[n,sto])*STO_IN[(n,sto),h] <= MaximumSoC[sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)]) - STO_L[(n,sto),h-1]
     );
 
     @info "Storage: maximum annual cycles - equivalent number of full discharges less than annual cycle number."
