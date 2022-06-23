@@ -670,7 +670,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
 
     @info "Storage: maximum annual cycles - equivalent number of full discharges less than annual cycle number."
     @constraint(m, MaxYearlyDischargeCycles[(n,sto)=Nodes_Storages; haskey(AnnualCycleNumber,sto)],
-        sum(STO_OUT[(n,sto),h] for h in Hours) <= AnnualCycleNumber[sto] * MaxEtoP_ratio[n,sto] * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
+        sum(STO_OUT[(n,sto),h] for h in Hours) <= AnnualCycleNumber[sto] * MaximumSoC[sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
     );
 
     next!(prog)
