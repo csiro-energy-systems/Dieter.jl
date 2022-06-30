@@ -54,26 +54,4 @@ build_model!,
 solve_model!,
 generate_results!
 
-# The following code is taken from PowerModels.jl:
-# the follow items are also exported for user-friendliness when calling
-# `using Dieter`
-# so that users do not need to import JuMP to use a solver via `with_optimizer`
-import JuMP: with_optimizer
-export with_optimizer
-
-# import MathOptInterface: TerminationStatusCode
-import JuMP.MOI: TerminationStatusCode
-export TerminationStatusCode
-
-# import MathOptInterface: ResultStatusCode
-import JuMP.MOI: ResultStatusCode
-export ResultStatusCode
-
-for status_code_enum in [TerminationStatusCode, ResultStatusCode]
-    for status_code in instances(status_code_enum)
-        @eval import MathOptInterface: $(Symbol(status_code))
-        @eval export $(Symbol(status_code))
-    end
-end
-
 end # module Dieter
