@@ -223,7 +223,7 @@ end
 
 """
 Expected Dieter model parameters read into `dtr.parameters`:
-CapacityFactor, FuelCost, FixedCost, VariableCost, OvernightCost,
+ExistingCapacity, FuelCost, FixedCost, VariableCost, OvernightCost,
 CurtailmentCost, LoadIncreaseCost, LoadDecreaseCost, Lifetime,
 MaxCapacity, MaxEnergy,
 TechTypeCategory, Renewable, Dispatchable,

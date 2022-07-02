@@ -13,6 +13,9 @@ function build_model!(dtr::DieterModel)
 
     dtr.model = Model(dtr.settings[:solver]; add_bridges = false)
     # Keyword: add_bridges = [false | true]; `false` helps performance since this is an LP.
+    set_string_names_on_creation(dtr.model, false)
+    # "For larger models calling `set_string_names_on_creation(model, false)` can improve performance at the cost
+    #  of reducing the readability of printing and solver log messages."
 
     m = dtr.model
 
