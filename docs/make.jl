@@ -67,15 +67,16 @@ makedocs(
     authors = "Alexander Zerrahn, Wolf-Peter Schill, Mario Kendziorski, James Foster",
     pages = Any[p for p in pages]
 )
-#=
+
 deploydocs(
-    repo = "github.com/jd-foster/Dieter.jl.git",
     target = "build",
+    # dirname = "",
+    repo = "github.com/jd-foster/Dieter.jl.git",
     branch = "gh-pages",
     devbranch = "dev",
     devurl = "dev",
-    push_preview=false,
     # versions = ["v#.#"],
     # versions = ["stable" => "v^", "v#.#"],
+    # deploy_config = Documenter.GitHubActions(),
+    push_preview=false,
 )
-=#
