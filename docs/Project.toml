@@ -1,0 +1,8 @@
+[deps]
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Dieter = "82bee632-140d-11e9-0e64-453bcc1f3349"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
+Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
