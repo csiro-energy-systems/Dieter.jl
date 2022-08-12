@@ -113,12 +113,12 @@ The key decision variables of the model are shown here as
     - Detail: Generation level change downwards
     - Bound: lower_bound=0
     - Units: MWh per time-interval; 
-- `G_REZ[REZones,Hours]` - *Generation renewable* - ``G^{\text{REZ}}_{(n,t),h}``
+- `G_REZ[REZones,Hours]` - *Generation renewable* - ``G^{\text{REZ}}_{z,h}``
     - Detail: Generation level - renewable energy zone tech. & storage
     - Bound: lower_bound=0
     - Units: MWh per time-interval; 
     - __Note__: This is a 'book-keeping' variable for each renewable energy zone (REZ, `REZones`) that aggregates operational variables at each hour.
-- `G_TxZ[TxZones,Hours]` - *Generation transmission zones* - ``G^{\text{TxZ}}_{(n,t),h}``
+- `G_TxZ[TxZones,Hours]` - *Generation transmission zones* - ``G^{\text{TxZ}}_{z,h}``
     - Detail: Generation level - transmission zone tech. & storage
     - Bound: lower_bound=0
     - Units: MWh per time-interval; 
@@ -309,4 +309,39 @@ Note that while this formulation does not explicitly display discounting factors
 
 ### Constraints
 
+For compactness we abbreviate `Nodes` to ``N``, `Techs` to ``T``, `Storages` to ``S``, and `Arcs` to ``A``. 
 
+*Definition of REZone generation book-keeping variables*: for ``z \in `` `REZones`,
+
+```math
+G^{\text{REZ}}_{z,h} = 
+    \sum_{t | (z,t) \in N \times T} G_{(z,t),h}
+    + \sum_{sto | (z,sto) \in N \times S} (STO^{\text{IN}}_{(z,sto),h} - STO^{\text{OUT}}_{(z,sto),h}) 
+```
+
+```julia
+@constraint(m, REZoneGen[rez=REZones,h=Hours],
+    G_REZ[rez,h] ==
+        sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == rez)
+        +  sum(STO_OUT[(q,sto),h] - STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == rez)
+);
+```
+*Definition of TxZone generation book-keeping variables*: for ``z \in`` `TxZones` and ``h \in`` `Hours`,
+
+```math
+G^{\text{TxZ}}_{(z,t),h} = 
+    \sum_{t | (z,t) \in N \times T} G_{(n,t),h}
+    + \sum_{sto | (z,sto) \in N \times S} (STO^{\text{IN}}_{(z,sto),h} - STO^{\text{OUT}}_{(z,sto),h}) \\
+    + \sum_{(rez,t) \in N \times T \, | \; rez \, \uparrow z } G^{\text{REZ}}_{rez,h} - \sum_{(n_F,n_T) \in A \, | \, n_F = z } F_{(n_F,n_T),h} 
+```
+where ``rez \, \uparrow z``  means the renewable enegy zone ``rez`` is connected to the transmission zone ``z``. 
+
+```julia
+@constraint(m, TxZoneGen[zone=TxZones,h=Hours],
+    G_TxZ[zone,h] ==
+        sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
+        +  sum(STO_OUT[(z,sto),h] - STO_IN[(z,sto),h] for (z,sto) in Nodes_Storages if z == zone)
+        +  sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+        -  sum(FLOW[(from,to),h] for (from,to) in Arcs if from == zone)
+);
+```
