@@ -1,5 +1,6 @@
-
 # DIETER.jl
+
+[![In Development](https://img.shields.io/badge/docs-dev-blue.svg)](https://jd-foster.github.io/Dieter.jl/dev/)
 
 [DIETER](http://www.diw.de/dieter) is the _Dispatch and Investment Evaluation Tool with Endogenous Renewables_, an open energy system model developed by the German Institute for Economic Research ([DIW Berlin](https://www.diw.de/en)). The model is structured as a cost-minimising [linear program](https://en.wikipedia.org/wiki/Linear_programming) that when solved to optimality will produce an hourly operation profile of an interconnected transmission system over a single year, including aspects such as
 - generator power output,

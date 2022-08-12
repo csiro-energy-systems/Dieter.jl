@@ -7,7 +7,11 @@ using Literate
 pages = OrderedDict(
         "Welcome Page" => "index.md",
         "Quick Start Guide" => "quick_start_guide.md",
-        "Tutorials" =>  "tutorials/intro_page.md",
+        "Tutorials" =>  
+            Any[
+                # "tutorials/intro_page.md",
+                "tutorials/optmodel.md"
+            ],
         # "Model Developer Guide" =>
         #     Any[
         #     ],
@@ -65,7 +69,7 @@ makedocs(
     format = Documenter.HTML(prettyurls = haskey(ENV, "GITHUB_ACTIONS"),),
     sitename = "Dieter.jl",
     authors = "Alexander Zerrahn, Wolf-Peter Schill, Mario Kendziorski, James Foster",
-    pages = Any[p for p in pages]
+    pages = [p for p in pages]
 )
 
 deploydocs(
