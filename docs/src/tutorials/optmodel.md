@@ -307,3 +307,6 @@ Continuing from above, the following terms are appear in the objective function 
 
 Note that while this formulation does not explicitly display discounting factors, these are applied in a separate pre-processing step.
 
+### Constraints
+
+
