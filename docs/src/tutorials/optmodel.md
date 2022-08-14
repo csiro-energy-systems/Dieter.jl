@@ -105,11 +105,11 @@ The key decision variables of the model are shown here as
     - Detail: Generation level - all generation technologies
     - Bounds: lower_bound=0
     - Units: MWh per time-interval; 
-- `G_UP[Nodes_Dispatch, Hours]` - *Generation upshift*
+- `G_UP[Nodes_Dispatch, Hours]` - *Generation upshift* - ``G^{\uparrow}_{(n,t),h}``
     - Detail: Generation level change upwards
     - Bound: lower_bound=0
     - Units: MWh per time-interval; 
-- `G_DO[Nodes_Dispatch, Hours]` - *Generation downshift*
+- `G_DO[Nodes_Dispatch, Hours]` - *Generation downshift* - ``G^{\downarrow}_{(n,t),h}``
     - Detail: Generation level change downwards
     - Bound: lower_bound=0
     - Units: MWh per time-interval; 
@@ -165,7 +165,7 @@ The key decision variables of the model are shown here as
     - Detail: Power transmission (flow) capacity expansion betweeen zones
     - Bound: lower_bound=0
     - Units: MW; 
-- `N_REZ_EXP[REZones]` - *Renewable capacity expand*
+- `N_REZ_EXP[REZones]` - *Renewable capacity expand* - ``N^{\text{RX}}_z``
     - Detail: Renewable technology transmission capacity built
     - Bound: lower_bound=0
     - Units: MW; 
@@ -309,9 +309,15 @@ Note that while this formulation does not explicitly display discounting factors
 
 ### Constraints
 
+The model constraints are given here in both mathematical form and code implementation form.
+
 For compactness we abbreviate `Nodes` to ``N``, `Techs` to ``T``, `Storages` to ``S``, and `Arcs` to ``A``. 
 
-*Definition of REZone generation book-keeping variables*: for ``z \in `` `REZones`,
+In the code formulation, constants of the form `CapAdd[:CapacitySymbol][i,j,...]` denote capacity quantities from the optimal capacity values from the model's solution in the previous time-step. Their use is to distinguish new capacity decision variables from prior capacity expansion data. Note that in the mathematical formulation there is no separate term corresponding to `CapAdd`. Instead, the capacity variables (e.g. ``N^{\text{TECH}}``) should be read as being inclusive of prior capacity expansion values, unless otherwise stated.
+
+#### _Energy balance and load_
+
+*Definition of REZone generation book-keeping variables*: for each ``z \in `` `REZones`,
 
 ```math
 G^{\text{REZ}}_{z,h} = 
@@ -326,7 +332,7 @@ G^{\text{REZ}}_{z,h} =
         +  sum(STO_OUT[(q,sto),h] - STO_IN[(q,sto),h] for (q,sto) in Nodes_Storages if q == rez)
 );
 ```
-*Definition of TxZone generation book-keeping variables*: for ``z \in`` `TxZones` and ``h \in`` `Hours`,
+*Definition of TxZone generation book-keeping variables*: for each ``z \in`` `TxZones` and ``h \in`` `Hours`,
 
 ```math
 G^{\text{TxZ}}_{(z,t),h} = 
@@ -345,3 +351,140 @@ where ``rez \, \uparrow z``  means the renewable enegy zone ``rez`` is connected
         -  sum(FLOW[(from,to),h] for (from,to) in Arcs if from == zone)
 );
 ```
+
+*Energy balance at each demand node: supply equals or exceeds demand*: for each ``n \in `` `DemandZones` and ``h \in`` `Hours`,
+
+```math
+G^{\text{TxZ}}_{(n,t),h} +  \sum_{g \in \text{G2P}}  H2^{\text{G2P}}_{(n,g),h}
+\geq 
+\alpha^{\text{Tx}} * \left[ D_{n,h} +  \sum_{p \in \text{P2G}}  H2^{\text{P2G}}_{(n,p),h} \right]
+```
+where ``D`` is the array of hourly demands at nodes, and ``\alpha^{\text{Tx}}`` is a constant factor accounting for transmission line losses.
+
+```julia
+@constraint(m, EnergyBalance[n=DemandZones,h=Hours],
+    sum(G_TxZ[zone,h] for (zone, d) in Nodes_Demand if d == n)
+    + sum(H2_G2P[(zone,g2p),h] for (zone,g2p) in Nodes_G2P if zone == n)
+    >=
+    loss_factor_tx*(
+        Load[n,h]
+        + sum(H2_P2G[(zone,p2g),h] for (zone,p2g) in Nodes_P2G if zone == n))
+);
+```
+
+*Energy flow reflexive constraint*: for each ``(n_F,n_T) \in`` `Arcs` and ``h \in`` `Hours`,
+```math
+    F_{(n_F,n_T),h} = - F_{(n_T,n_F),h}
+```
+
+```julia
+@constraint(m, FlowEnergyReflex[(from,to)=Arcs,h=Hours; from in Arcs_From],
+    FLOW[(from,to),h] + FLOW[(to,from),h] == 0
+);
+```
+
+*Energy flow bounds*: for each ``(n_F,n_T) \in`` `Arcs` and ``h \in`` `Hours`, 
+```math
+    F_{(n_F,n_T),h} \leq C^{\text{Tx}}_{(n_F,n_T)} + N^{\text{IC\_EXP}}_{(n_F,n_T)}
+```
+```julia
+@constraint(m, FlowEnergyUpperBound[(from,to)=Arcs,h=Hours],
+    FLOW[(from,to),h] <= time_ratio * ( TransferCapacity[(from,to)] + N_IC_EXP[(from,to)] + CapAdd[:N_IC_EXP][(from,to)])
+);
+```
+
+*Energy flow expansion symmetry*: for each ``(n_F,n_T) \in`` `Arcs`,
+```math
+N^{\text{IC\_EXP}}_{(n_F,n_T)} = N^{\text{IC\_EXP}}_{(n_T,n_F)}
+```
+```julia
+@constraint(m, FlowEnergySymmetry[(from,to)=Arcs; from in Arcs_From],
+    N_IC_EXP[(from,to)] == N_IC_EXP[(to,from)]
+);
+```
+
+*Generation level start*: for each ``(n,t) \in `` `Nodes_Dispatch`,
+```math
+    G_{(n,t),1} = G^{\uparrow}_{(n,t),1}
+```
+```julia
+@constraint(m, GenLevelStart[(n,t)=Nodes_Dispatch],
+            G[(n,t),Hours[1]] == G_UP[(n,t),Hours[1]]
+);
+```
+
+*Generation level dynamics*: for each ``(n,t) \in `` `Nodes_Dispatch`, and for ``h \in`` `Hours`, ``h \neq 1``,
+```math
+    G_{(n,t),h} = G_{(n,t),h-1} + G^{\uparrow}_{(n,t),h} - G^{\downarrow}_{(n,t),h}
+```
+```julia
+@constraint(m, GenLevelUpdate[(n,t)=Nodes_Dispatch,h=Hours2],
+    G[(n,t),h] == G[(n,t),h-1] + G_UP[(n,t),h] - G_DO[(n,t),h]
+);
+```
+
+*Variable upper bound on dispatchable generation by capacity*: for each ``(n,t) \in `` `Nodes_Dispatch`, and for ``h \in`` `Hours`,
+```math
+    G_{(n,t),h} \leq C^{\text{Derate}}_{(n,t),h} N^{\text{TECH}}_{(n,t)}
+```
+where ``C^{\text{Derate}}`` denotes capacity derating depending on generation technology type and hour characteristics (such as seasonal temperature).
+```julia
+@constraint(m, MaxGenerationDisp[(n,t)=Nodes_Dispatch,h=Hours],
+    G[(n,t),h] <= CapacityDerating[n,t,h] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)])
+);
+```
+
+*Variable upper bound on non-dispatchable generation by capacity*: for each ``(n,t) \in `` `Nodes_Avail_Techs`, and for ``h \in`` `Hours`,
+```math
+G_{(n,t),h} \leq C^{\text{Avail}}_{(n,t),h} N^{\text{TECH}}_{(n,t)}
+```
+where ``C^{\text{Avail}}`` denotes the availability of a variable renewable source (a value between 0 and 1 inclusive).
+```julia
+@constraint(m, MaxGenerationNonDisp[(n,t)=Nodes_Avail_Techs,h=Hours],
+    G[(n,t),h] <= Availability[n,t,h] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)])
+);
+```
+
+*Maximum capacity allowed*: for each ``(n,t) \in `` `Nodes_Techs`,
+```math
+    N^{\text{TECH}}_{(n,t)} \leq \widehat{N}_{(n,t)}
+```
+```julia
+@constraint(m, MaxCapacityBound[(n,t)=Nodes_Techs; !(MaxCapacity[n,t] |> ismissing)],
+    N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)] <= MaxCapacity[n,t]
+);
+```
+
+*Maximum generated energy allowed*: for each ``(n,t) \in `` `Nodes_Techs`,
+```math
+    \sum_{h \in Hours} G_{(n,t),h} \leq \widehat{E}_{(n,t)}
+```
+```julia
+@constraint(m, MaxEnergyGenerated[(n,t)=Nodes_Techs; !(MaxEnergy[n,t] |> ismissing)],
+    sum(G[(n,t),h] for h in Hours) <= MaxEnergy[n,t]
+);
+```
+
+*Renewable energy zone build limits*: for each ``z \in `` `REZones` and ``h \in`` `Hours`,
+```math
+\sum_{h \in Hours} G_{(z,t),h} \leq \bar{C}^{\text{RX}}_z + N^{\text{RX}}_z
+```
+where the ``\bar{C}^{\text{RX}}`` term denotes the available capacity to build in a zone before further expansion capacity ``N^{\text{RX}}`` is required.
+```julia
+@constraint(m, REZBuildLimits[rez=REZones,h=Hours],
+    sum(G[(z,t),h] for (z,t) in Nodes_Avail_Techs if z == rez)
+        <= time_ratio*(TotalBuildCap[rez] +  N_REZ_EXP[rez] + CapAdd[:N_REZ_EXP][rez])
+);
+```
+
+*Renewable energy zone expansion limits*: for each ``z \in `` `REZones`,
+```math
+N^{\text{RX}}_z \leq \widehat{N}^{\text{RX}}_z 
+```
+```julia
+@constraint(m, REZExpansionBound[rez=REZones],
+    N_REZ_EXP[rez] + trunc(CapAdd[:N_REZ_EXP][rez]) <= ExpansionLimit_REZ[rez]
+);
+```
+
+<!-- *Renewable energy zone expansion link to transmission expansion*: -->
