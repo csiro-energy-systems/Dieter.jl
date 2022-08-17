@@ -2,7 +2,7 @@
 
 ```@contents
 Pages = ["optmodel.md"]
-Depth = 3
+Depth = 4
 ```
 
 ## The optimization model 
@@ -315,7 +315,9 @@ For compactness we abbreviate `Nodes` to ``N``, `Techs` to ``T``, `Storages` to 
 
 In the code formulation, constants of the form `CapAdd[:CapacitySymbol][i,j,...]` denote capacity quantities from the optimal capacity values from the model's solution in the previous time-step. Their use is to distinguish new capacity decision variables from prior capacity expansion data. Note that in the mathematical formulation there is no separate term corresponding to `CapAdd`. Instead, the capacity variables (e.g. ``N^{\text{TECH}}``) should be read as being inclusive of prior capacity expansion values, unless otherwise stated.
 
-#### _Energy balance and load_
+The parameter ``\tau``, or `time_ratio`, is used to link energy variables and quantities (in MWh) to capacity (in MW). The constant relates generation levels during one time-step to energy on an hourly basis (MWh per hour). For example, a half-hourly time-step resolution means `time_ratio = 1/2` while an hour time-step resolution has `time_ratio = 1`.
+
+#### Energy balance and load
 
 *Definition of REZone generation book-keeping variables*: for each ``z \in `` `REZones`,
 
@@ -357,9 +359,9 @@ where ``rez \, \uparrow z``  means the renewable enegy zone ``rez`` is connected
 ```math
 G^{\text{TxZ}}_{(n,t),h} +  \sum_{g \in \text{G2P}}  H2^{\text{G2P}}_{(n,g),h}
 \geq 
-\alpha^{\text{Tx}} * \left[ D_{n,h} +  \sum_{p \in \text{P2G}}  H2^{\text{P2G}}_{(n,p),h} \right]
+\alpha^{\text{Tx}}  \left[ \widehat{D}_{n,h} +  \sum_{p \in \text{P2G}}  H2^{\text{P2G}}_{(n,p),h} \right]
 ```
-where ``D`` is the array of hourly demands at nodes, and ``\alpha^{\text{Tx}}`` is a constant factor accounting for transmission line losses.
+where ``\widehat{D}`` is the array of hourly demands at nodes, and ``\alpha^{\text{Tx}}`` is a constant factor accounting for transmission line losses.
 
 ```julia
 @constraint(m, EnergyBalance[n=DemandZones,h=Hours],
@@ -385,8 +387,9 @@ where ``D`` is the array of hourly demands at nodes, and ``\alpha^{\text{Tx}}`` 
 
 *Energy flow bounds*: for each ``(n_F,n_T) \in`` `Arcs` and ``h \in`` `Hours`, 
 ```math
-    F_{(n_F,n_T),h} \leq C^{\text{Tx}}_{(n_F,n_T)} + N^{\text{IC\_EXP}}_{(n_F,n_T)}
+    F_{(n_F,n_T),h} \leq \tau \left( \widehat{C}^{\text{Tx}}_{(n_F,n_T)} + N^{\text{IC\_EXP}}_{(n_F,n_T)} \right)
 ```
+where ``\widehat{C}^{\text{Tx}}`` denotes existing capacity in transmission.
 ```julia
 @constraint(m, FlowEnergyUpperBound[(from,to)=Arcs,h=Hours],
     FLOW[(from,to),h] <= time_ratio * ( TransferCapacity[(from,to)] + N_IC_EXP[(from,to)] + CapAdd[:N_IC_EXP][(from,to)])
@@ -425,9 +428,9 @@ N^{\text{IC\_EXP}}_{(n_F,n_T)} = N^{\text{IC\_EXP}}_{(n_T,n_F)}
 
 *Variable upper bound on dispatchable generation by capacity*: for each ``(n,t) \in `` `Nodes_Dispatch`, and for ``h \in`` `Hours`,
 ```math
-    G_{(n,t),h} \leq C^{\text{Derate}}_{(n,t),h} N^{\text{TECH}}_{(n,t)}
+    G_{(n,t),h} \leq \tau \cdot \widehat{C}^{\text{Derate}}_{(n,t),h} N^{\text{TECH}}_{(n,t)}
 ```
-where ``C^{\text{Derate}}`` denotes capacity derating depending on generation technology type and hour characteristics (such as seasonal temperature).
+where ``\widehat{C}^{\text{Derate}}`` denotes capacity derating depending on generation technology type and hour-dependent characteristics (such as seasonal temperature factors).
 ```julia
 @constraint(m, MaxGenerationDisp[(n,t)=Nodes_Dispatch,h=Hours],
     G[(n,t),h] <= CapacityDerating[n,t,h] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)])
@@ -436,9 +439,9 @@ where ``C^{\text{Derate}}`` denotes capacity derating depending on generation te
 
 *Variable upper bound on non-dispatchable generation by capacity*: for each ``(n,t) \in `` `Nodes_Avail_Techs`, and for ``h \in`` `Hours`,
 ```math
-G_{(n,t),h} \leq C^{\text{Avail}}_{(n,t),h} N^{\text{TECH}}_{(n,t)}
+G_{(n,t),h} \leq \tau \cdot \widehat{C}^{\text{Avail}}_{(n,t),h} N^{\text{TECH}}_{(n,t)}
 ```
-where ``C^{\text{Avail}}`` denotes the availability of a variable renewable source (a value between 0 and 1 inclusive).
+where ``\widehat{C}^{\text{Avail}}`` denotes the availability of a variable renewable source (a value between 0 and 1 inclusive).
 ```julia
 @constraint(m, MaxGenerationNonDisp[(n,t)=Nodes_Avail_Techs,h=Hours],
     G[(n,t),h] <= Availability[n,t,h] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)])
@@ -447,7 +450,7 @@ where ``C^{\text{Avail}}`` denotes the availability of a variable renewable sour
 
 *Maximum capacity allowed*: for each ``(n,t) \in `` `Nodes_Techs`,
 ```math
-    N^{\text{TECH}}_{(n,t)} \leq \widehat{N}_{(n,t)}
+    N^{\text{TECH}}_{(n,t)} \leq \widehat{N}^{\text{TECH}}_{(n,t)}
 ```
 ```julia
 @constraint(m, MaxCapacityBound[(n,t)=Nodes_Techs; !(MaxCapacity[n,t] |> ismissing)],
@@ -467,9 +470,9 @@ where ``C^{\text{Avail}}`` denotes the availability of a variable renewable sour
 
 *Renewable energy zone build limits*: for each ``z \in `` `REZones` and ``h \in`` `Hours`,
 ```math
-\sum_{h \in Hours} G_{(z,t),h} \leq \bar{C}^{\text{RX}}_z + N^{\text{RX}}_z
+\sum_{h \in Hours} G_{(z,t),h} \leq \tau \left( \widehat{C}^{\text{RX}}_z + N^{\text{RX}}_z \right)
 ```
-where the ``\bar{C}^{\text{RX}}`` term denotes the available capacity to build in a zone before further expansion capacity ``N^{\text{RX}}`` is required.
+where the ``\widehat{C}^{\text{RX}}`` term denotes the available hosting capacity in a zone before further expansion capacity ``N^{\text{RX}}`` is required.
 ```julia
 @constraint(m, REZBuildLimits[rez=REZones,h=Hours],
     sum(G[(z,t),h] for (z,t) in Nodes_Avail_Techs if z == rez)
@@ -487,4 +490,252 @@ N^{\text{RX}}_z \leq \widehat{N}^{\text{RX}}_z
 );
 ```
 
-<!-- *Renewable energy zone expansion link to transmission expansion*: -->
+#### Operational conditions and constraints
+
+*Maximum ramp up rates*: for each ``(n,t) \in `` `Nodes_RampingTechs`, and for ``h \in`` `Hours`, ``h \neq 1``,
+```math
+    G^{\uparrow}_{(n,t),h}  \leq \tau \; \widehat{C}^{\uparrow}_t
+```
+where ``\widehat{C}^{\uparrow}`` denotes technology-specific ramp-up rates.
+
+```julia
+@constraint(m, RampingUpLimits[(n,t)=Nodes_RampingTechs, h=Hours2],
+    G_UP[(n,t),h] <= time_ratio * MaxRampUpPerHour[t]
+);
+```
+
+*Maximum ramp down rates*: for each ``(n,t) \in `` `Nodes_RampingTechs`, and for ``h \in`` `Hours`, ``h \neq 1``,
+```math
+    G^{\downarrow}_{(n,t),h}  \leq \tau \; \widehat{C}^{\downarrow}_t
+```
+where ``\widehat{C}^{\downarrow}`` denotes technology-specific ramp-up rates.
+
+```julia
+@constraint(m, RampingDownLimits[(n,t)=Nodes_RampingTechs, h=Hours2],
+    G_DO[(n,t),h] <= time_ratio * MaxRampDownPerHour[t]
+)
+```
+
+*Operating reserve margin*: for particular regions ``dr \in`` `DemandRegions` and for all ``h \in`` `Hours`, the margin between available power generation and total capacity must remain greater than or equal to the applicable operating reserve.
+
+```julia
+@constraint(m, OperatingReserve[dr=DemandRegions, h=Hours],
+    sum( CapacityDerating[n,t,h] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)]) - G[(n,t),h]
+        for (n,t) in Nodes_Dispatch if node2DemReg[n] == dr)
+    + sum( PeakContribution[n,t] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)])
+        for (n,t) in Nodes_Avail_Techs if node2DemReg[n] == dr)  # or replace `Nodes_Avail_Techs` with `setdiff(Nodes_Avail_Techs,Nodes_Dispatch)`
+    + sum( sqrt(Efficiency[n,sto])*STO_L[(n,sto), h]
+        for (n,sto) in Nodes_Storages if node2DemReg[n] == dr)
+    >= time_ratio * OperatingReserve[dr]
+);
+```
+
+*Minimum stable generation levels*: certain generation technologies must remain above a prescribed level as part of maintaining a stable operating state; for each ``(n,t) \in `` `Nodes_Dispatch`, and for ``h \in`` `Hours`,
+```math
+    G_{(n,t),h} \geq \tau \cdot \widehat{SG}_{(n,t)} \cdot \widehat{C}^{\text{Derate}}_{(n,t),h} N^{\text{TECH}}_{(n,t)}
+```
+where ``\widehat{SG}`` is a fraction between 0 and 1 denoting the proportion of available capacity that should be operational and supplying power.
+```julia
+@constraint(m, MinStableGeneration[(n,t)=keys(MinStableGen), h=Hours; !(MinStableGen[n,t] |> ismissing)],
+    G[(n,t),h] >= MinStableGen[n,t] * CapacityDerating[n,t,h] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)])
+);
+```
+
+
+#### Requirements for renewable generation
+
+*Minimum yearly renewables requirement*: for each demand region ``n \in`` `DemandRegions`, we require that a specified proportion of power is generated from variable renewable sources. 
+
+```julia
+@constraint(m, MinRES[n=DemandRegions],
+    sum(
+        sum(G[(z,t),h] for (z,t) in Nodes_Renew if z == zone)  # Any renewable TxZone-level tech.
+        + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+    for (zone, d) in Nodes_Demand if node2DemReg[d] == n
+    for h in Hours
+    )
+    >=
+    (min_res_dict[n]/100)*(
+        sum(
+            sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
+            + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+        for (zone, d) in Nodes_Demand if node2DemReg[d] == n
+        for h in Hours
+        )
+    )
+);
+```
+
+*Minimum yearly renewables requirement for whole-of-system*: across the whole-of-system demand, we require that a specified proportion of power is generated from variable renewable sources. 
+```julia
+@constraint(m, MinRESsystem,
+    sum(
+        sum(
+            sum(G[(z,t),h] for (z,t) in Nodes_Renew if z == zone)  # Any renewable TxZone-level tech.
+            + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+            for (zone, d) in Nodes_Demand if node2DemReg[d] == n
+        for h in Hours)
+    for n in DemandRegions)
+        >=
+        (MinimumRenewShare/100)*sum(
+            sum(
+                sum(G[(z,t),h] for (z,t) in Nodes_Techs if z == zone)
+                + sum(G_REZ[rez,h] for (rez, z) in Nodes_Promotes if z == zone)
+                for (zone, d) in Nodes_Demand if node2DemReg[d] == n
+            for h in Hours)
+        for n in DemandRegions)
+);
+```
+
+#### Storage constraints
+
+*Storage level dynamics: initial condition*: for each ``(n,sto) \in `` `Nodes_Storages`,
+```math
+STO^{\text{L}}_{(n,sto),1} = \sigma_0 \; \widehat{SoC}^{\text{max}}_{sto} \; N^{\text{E}}_{(n,sto)} + \rho_{(n,sto)}^{1/2} STO^{\text{IN}}_{(z,sto),1} - \rho_{(n,sto)}^{-1/2} STO^{\text{OUT}}_{(z,sto),1}
+```
+where
+- ``\sigma_0`` is the starting state-of-charge proportion (between 0 and 1, default value 0.5)
+-  ``\widehat{SoC}^{\text{max}}`` is the maximum state-of-charge proportion (between 0 and 1) relative to the nominal energy storage capacity, and
+- ``\rho`` denotes storage round-trip efficiency.
+
+```julia
+@constraint(m, StorageLevelStart[(n,sto)=Nodes_Storages],
+    STO_L[(n,sto),Hours[1]]
+        ==
+    StartLevel[n,sto] * MaximumSoC[sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
+    +   sqrt(Efficiency[n,sto])*STO_IN[(n,sto), Hours[1]]
+    - 1/sqrt(Efficiency[n,sto])*STO_OUT[(n,sto), Hours[1]]
+);
+```
+
+*Storage end level equal to initial level*: for each ``(n,sto) \in `` `Nodes_Storages`,
+```math
+STO^{\text{L}}_{(n,sto),end} = \sigma_0 \; \widehat{SoC}^{\text{max}}_{sto} \; N^{\text{E}}_{(n,sto)}
+```
+```julia
+@constraint(m, StorageLevelEnd[(n,sto)=Nodes_Storages],
+    STO_L[(n,sto),Hours[end]]
+        ==
+    StartLevel[n,sto] * MaximumSoC[sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
+);
+```
+
+*Storage level dynamics*: for each ``(n,sto) \in `` `Nodes_Storages` and ``h \in `` `Hours`, ``h \neq 1``,
+```math
+STO^{\text{L}}_{(n,sto),h} = STO^{\text{L}}_{(n,sto),h-1} + \rho_{(n,sto)}^{1/2} STO^{\text{IN}}_{(n,sto),h} - \rho_{(n,sto)}^{-1/2} STO^{\text{OUT}}_{(n,sto),h}
+```
+
+```julia
+@constraint(m, StorageBalance[(n,sto)=Nodes_Storages,h=Hours2],
+    STO_L[(n,sto), h]
+    ==
+    STO_L[(n,sto), h-1]
+    +   sqrt(Efficiency[n,sto])*STO_IN[(n,sto), h]
+    - (1/sqrt(Efficiency[n,sto]))*STO_OUT[(n,sto), h]
+);
+```
+
+*Storage energy capacity*: for each ``(n,sto) \in `` `Nodes_Storages` and ``h \in `` `Hours`,
+```math
+STO^{\text{L}}_{(n,sto),h} \leq \widehat{SoC}^{\text{max}}_{sto} \; N^{\text{E}}_{(n,sto)}
+```
+
+```julia
+@constraint(m, MaxLevelStorage[(n,sto)=Nodes_Storages,h=Hours],
+    STO_L[(n,sto),h] <= MaximumSoC[sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
+);
+```
+
+*Storage maximum inflow*: for each ``(n,sto) \in `` `Nodes_Storages` and ``h \in `` `Hours`,
+```math
+STO^{\text{IN}}_{(n,sto),h} \leq \tau  N^{\text{P}}_{(n,sto)}
+```
+
+```julia
+@constraint(m, MaxWithdrawStorage[(n,sto)=Nodes_Storages,h=Hours],
+    STO_IN[(n,sto),h] <= time_ratio * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
+);
+```
+
+*Storage generation outflow by capacity*: for each ``(n,sto) \in `` `Nodes_Storages` and ``h \in `` `Hours`,
+```math
+STO^{\text{OUT}}_{(n,sto),h} \leq \tau  N^{\text{P}}_{(n,sto)}
+```
+
+```julia
+@constraint(m, MaxGenerationStorage[(n,sto)=Nodes_Storages,h=Hours],
+    STO_OUT[(n,sto),h] <= time_ratio * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
+);
+```
+
+*Storage: maximum energy allowed*: impose an energy capacity upper bound for each ``(n,sto) \in `` `Nodes_Storages`;
+
+```julia
+if !(isDictAllMissing(dtr.parameters[:MaxEnergy]))
+    @constraint(m, MaxEnergyStorage[(n,sto)=Nodes_Storages; !(MaxEnergy[n,sto] |> ismissing)],
+        N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] <= MaxEnergy[n,sto]
+    );
+end
+```
+
+*Storage: maximum power allowed*: impose a power capacity upper bound for each ``(n,sto) \in `` `Nodes_Storages`;
+
+```julia
+@constraint(m, MaxPowerStorage[(n,sto)=Nodes_Storages; !(MaxCapacity[n,sto] |> ismissing)],
+    N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)] <= MaxCapacity[n,sto]
+);
+```
+
+*Storage: maximum energy-to-power ratio (duration)*: for each ``(n,sto) \in `` `Nodes_Storages`,
+```math
+(1 - \epsilon_{T}) \widehat{T}_{(n,sto)} N^{\text{P}}_{(n,sto)} \leq N^{\text{E}}_{(n,sto)} \leq (1 + \epsilon_{T})  \widehat{T}_{(n,sto)} N^{\text{P}}_{(n,sto)}
+```
+where ``\widehat{T}`` denotes a specified storage duration, and ``\epsilon_{T}`` is a constraint tolerance.
+
+```julia
+tol_EtoP = 0.01 ## Constraint tolerance for matching energy to power ratio
+
+@constraint(m, EnergyToPowerRatioUp[(n,sto)=Nodes_Storages; !(MaxEtoP_ratio[n,sto] |> ismissing)],
+    N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] <= (1 + tol_EtoP) * MaxEtoP_ratio[n,sto] * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
+);
+```
+
+```julia
+@constraint(m, EnergyToPowerRatioLo[(n,sto)=Nodes_Storages; !(MaxEtoP_ratio[n,sto] |> ismissing)],
+    N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)] >= (1 - tol_EtoP) * MaxEtoP_ratio[n,sto] * (N_STO_P[(n,sto)] + CapAdd[:N_STO_P][(n,sto)])
+);
+```
+
+*Storage: maximum outflow - no more than level of last period*: for each ``(n,sto) \in `` `Nodes_Storages` and ``h \in `` `Hours`, ``h \neq 1``,
+```math
+\rho_{(n,sto)}^{-1/2} STO^{\text{OUT}}_{(n,sto),h} \leq STO^{\text{L}}_{(n,sto),h-1}
+```
+
+```julia
+@constraint(m, MaxOutflowStorage[(n,sto)=Nodes_Storages,h=Hours2],
+    (1/sqrt(Efficiency[n,sto]))*STO_OUT[(n,sto),h] <= STO_L[(n,sto),h-1]
+);
+```
+
+*Storage: maximum inflow - no more than energy capacity minus level of last period*: for each ``(n,sto) \in `` `Nodes_Storages` and ``h \in `` `Hours`, ``h \neq 1``,
+```math
+\rho_{(n,sto)}^{1/2} STO^{\text{IN}}_{(n,sto),h} \leq \widehat{SoC}^{\text{max}}_{sto} \left(  N^{\text{E}}_{(n,sto)} - STO^{\text{L}}_{(n,sto),h-1} \right)
+```
+
+```julia
+@constraint(m, MaxInflowStorage[(n,sto)=Nodes_Storages,h=Hours2],
+    sqrt(Efficiency[n,sto])*STO_IN[(n,sto),h] <= MaximumSoC[sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)]) - STO_L[(n,sto),h-1]
+);
+```
+
+*Storage: maximum annual cycles - equivalent number of full discharges less than annual cycle number*: for each ``(n,sto) \in `` `Nodes_Storages`,
+```math
+\sum_{h \in \text{Hours}} STO^{\text{OUT}}_{(n,sto),h} \leq \nu_{sto} \widehat{SoC}^{\text{max}}_{sto}  N^{\text{E}}_{(n,sto)}
+```
+where the total equivalent number of times the storage technology undergoes a full discharge is specified by ``\nu_{sto}``.
+
+```julia
+@constraint(m, MaxYearlyDischargeCycles[(n,sto)=Nodes_Storages; haskey(AnnualCycleNumber,sto)],
+    sum(STO_OUT[(n,sto),h] for h in Hours) <= AnnualCycleNumber[sto] * MaximumSoC[sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
+);
+```

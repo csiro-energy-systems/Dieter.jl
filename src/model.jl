@@ -638,7 +638,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
     if !(isDictAllMissing(dtr.parameters[:MaxEnergy]))
         @info "Storage: maximum energy allowed."
         @constraint(m, MaxEnergyStorage[(n,sto)=Nodes_Storages; !(MaxEnergy[n,sto] |> ismissing)],
-            N_STO_E[(n,sto)] <= MaxEnergy[n,sto]
+            N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)]  <= MaxEnergy[n,sto]
         );
     end
 
