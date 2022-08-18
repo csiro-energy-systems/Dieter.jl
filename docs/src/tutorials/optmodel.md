@@ -22,7 +22,7 @@ Each optimization model is structured around some key indexing sets related to
 
 #### Temporal
 
-The time indexing of DIETER is typically over 8760 hours of a single full year. The start and end day of the year itself is not assumed.
+The time indexing of DIETER is typically over 8760 hours of a single full year. The set of time-steps is written ``\text{Hours}`` or `Hours`. The start and end day of the year itself is not assumed.
 
 For example, in the code we have something akin to
 ```julia
@@ -73,6 +73,8 @@ and is distinguished from the set `Storages` of energy storage technology types,
 Storages = ["LIonBattery", "PumpedHydro", "CAES", "RedoxBattery"]
 ```
 since the model constraints differ for these two categories.
+
+In the case of hydrogen technology, the set `P2G` contains hydrogen electrolysers, and `G2P` contains hydrogen fuel-based power generation technology.
 
 #### Mapping between index sets
 
@@ -187,11 +189,11 @@ The key decision variables of the model are shown here as
     - Detail: Current gas storage level
     - Bound: lower_bound=0
     - Units: tonne-H2 at a given time-interval; 
-- `H2_GS_IN[Nodes_GasStorages, Hours]` - *H2 storage inflow*
+- `H2_GS_IN[Nodes_GasStorages, Hours]` - *H2 storage inflow* - ``H2^{\text{GS\_IN}}_{(n,p),h}``
     - Detail: Current gas storage input
     - Bound: lower_bound=0
     - Units: tonne-H2 at a given time-interval; 
-- `H2_GS_OUT[Nodes_GasStorages, Hours]` - *H2 storage outflow*
+- `H2_GS_OUT[Nodes_GasStorages, Hours]` - *H2 storage outflow* - ``H2^{\text{GS\_OUT}}_{(n,p),h}``
     - Detail: Current gas storage output
     - Bound: lower_bound=0
     - Units: tonne-H2 at a given time-interval; 
@@ -587,7 +589,7 @@ where ``\widehat{SG}`` is a fraction between 0 and 1 denoting the proportion of 
 );
 ```
 
-#### Storage constraints
+#### Storage technologies
 
 *Storage level dynamics: initial condition*: for each ``(n,sto) \in `` `Nodes_Storages`,
 ```math
@@ -737,5 +739,127 @@ where the total equivalent number of times the storage technology undergoes a fu
 ```julia
 @constraint(m, MaxYearlyDischargeCycles[(n,sto)=Nodes_Storages; haskey(AnnualCycleNumber,sto)],
     sum(STO_OUT[(n,sto),h] for h in Hours) <= AnnualCycleNumber[sto] * MaximumSoC[sto] * (N_STO_E[(n,sto)] + CapAdd[:N_STO_E][(n,sto)])
+);
+```
+
+#### Hydrogen technologies
+
+*Hydrogen: minimum yearly lower bound on power-to-gas*: for each ``(n,p) \in `` `Nodes_P2G`, 
+```math
+\sum_{h \in \text{Hours}} H2^{\text{P2G}}_{(n,p),h} \geq \widehat{D}^{\text{H2}}_{(n,p2g)}
+```
+where ``\widehat{D}^{\text{H2}}`` denotes annual hydrogen production demand at particular spatial locations for a given electrolyser tecnhnology.
+
+```julia
+@constraint(dtr.model, MinYearlyP2G[(n,p2g)=Nodes_P2G],
+    sum(H2_P2G[(n,p2g),h] for h in Hours) >= H2Demand[n,p2g]
+);
+```
+
+*Hydrogen: constant hourly lower bound on power-to-gas technology*: for each ``(n,p) \in `` `Nodes_P2G` and ``h \in `` `Hours`,
+```math
+H2^{\text{P2G}}_{(n,p),h} \geq \widehat{CF}^{\text{LB}}_n \frac{\widehat{D}^{\text{H2}}_{(n,p2g)}}{| \text{Hours} | } 
+```
+where ``| \text{Hours} |`` is the number of time-steps (typically 8760 hours per year) and ``\widehat{CF}^{\text{LB}}`` is capacity factor lower bound data for typical plant operation.
+
+```julia
+@constraint(dtr.model, MinHourlyP2G_AE[(n,p2g)=Nodes_P2G_AE, h=Hours],
+    H2_P2G[(n,p2g),h] >= AE_Capacity_Factor_LB*(H2Demand[n,p2g]/periods)
+);
+```
+```julia
+@constraint(dtr.model, MinHourlyP2G_PEM[(n,p2g)=Nodes_P2G_PEM, h=Hours],
+    H2_P2G[(n,p2g),h] >= PEM_Capacity_Factor_LB*(H2Demand[n,p2g]/periods)
+);
+```
+
+*Hydrogen: variable upper bound on power-to-gas*: for each ``(n,p) \in `` `Nodes_P2G` and ``h \in `` `Hours`,
+```math
+H2^{\text{P2G}}_{(n,p),h} \leq \widehat{CF}^{\text{UB}}_n N^{\text{P2G}}_{(n,p)}
+```
+where ``\widehat{CF}^{\text{UB}}`` is capacity factor upper bound data for typical plant operation.
+```julia
+@constraint(dtr.model, MaxP2G[(n,p2g)=Nodes_P2G,h=Hours],
+    H2_P2G[(n,p2g),h] <= time_ratio * H2_P2G_Capacity_Factor_UB * (N_P2G[(n,p2g)] + CapAdd[:N_P2G][(n,p2g)])
+);
+```
+
+*Hydrogen: variable upper bound on gas-to-power*: for each ``(n,g) \in `` `Nodes_G2P` and ``h \in `` `Hours`,
+```math
+H2^{\text{G2P}}_{(n,g),h} \leq N^{\text{G2P}}_{(n,g)}
+```
+```julia
+@constraint(dtr.model, MaxG2P[(n,g2p)=Nodes_G2P,h=Hours],
+    H2_G2P[(n,g2p),h] <= time_ratio * (N_G2P[(n,g2p)] + CapAdd[:N_G2P][(n,g2p)])
+);
+```
+
+*Hydrogen: capacity factor upper bound on gas-to-power*: for each ``(n,g) \in `` `Nodes_G2P` and ``h \in `` `Hours`,
+```math
+\sum_{h \in \text{Hours}} H2^{\text{G2P}}_{(n,g),h} \leq  \widehat{CF}^{\text{UB}}_n  N^{\text{G2P}}_{(n,g)} | \text{Hours} | 
+```
+```julia
+@constraint(dtr.model, MaxCapFactorH2_G2P[(n,g2p)=Nodes_G2P],
+    sum(H2_G2P[(n,g2p),h] for h in Hours) <= RecipH2_CF_UB*length(Hours)*(N_G2P[(n,g2p)] + CapAdd[:N_G2P][(n,g2p)])
+);
+```
+            
+*Hydrogen: variable upper bound on gas storage*: for each ``(n,gs) \in `` `Nodes_GasStorages` and ``h \in `` `Hours`,
+```math
+  H2^{\text{GS\_L}}_{(n,gs),h} \leq N^{\text{GS}}_{(n,gs)}
+```
+```julia
+@constraint(dtr.model, MaxLevelGasStorage[(n,gs)=Nodes_GasStorages,h=Hours],
+    H2_GS_L[(n,gs),h] <= N_GS[(n,gs)] + CapAdd[:N_GS][(n,p2g)]
+);
+```
+*Hydrogen: conversion into gas storage*: for each ``(n,gs) \in `` `Nodes_GasStorages` and ``h \in `` `Hours`,
+```math
+H2^{\text{GS\_IN}}_{(n,gs),h} = \sum_{(n,g) \in N \times \text{P2G}} \frac{H2^{\text{P2G}}_{(n,p),h}}{\gamma_{(n,p)}}
+```
+where ``\gamma_{(n,g)}`` is a conversion factor between units of stored hydrogen and electricity consumption (typically `H2Conversion` = ``\gamma`` = 15.2 MWh / t-H2 ).
+```julia
+@constraint(dtr.model, GasStorageIn[(n,gs)=Nodes_GasStorages,h=Hours],
+    H2_GS_IN[(n,gs),h] == sum(H2_P2G[(n,p2g),h]/H2Conversion[n,p2g] for (n,p2g) in Nodes_P2G)
+);
+```
+
+*Hydrogen: conversion out of gas storage*: for each ``(n,gs) \in `` `Nodes_GasStorages` and ``h \in `` `Hours`,
+```math
+H2^{\text{GS\_OUT}}_{(n,gs),h} = \sum_{(n,g) \in N \times \text{G2P}} \frac{H2^{\text{G2P}}_{(n,g),h}}{\gamma_{(n,g)}}
+```
+```julia
+@constraint(dtr.model, GasStorageOut[(n,gs)=Nodes_GasStorages,h=Hours],
+    H2_GS_OUT[(n,gs),h] == sum(H2_G2P[(n,g2p),h]/H2Conversion[n,g2p] for (n,g2p) in Nodes_G2P)
+);
+```
+
+*Hydrogen: gas storage mass balance*: for each ``(n,gs) \in `` `Nodes_GasStorages` and ``h \in `` `Hours`, ``h \neq 1``,
+```math
+ H2^{\text{GS\_L}}_{(n,gs),h} =  H2^{\text{GS\_L}}_{(n,gs),h-1} + H2^{\text{GS\_IN}}_{(n,gs),h} - H2^{\text{GS\_OUT}}_{(n,gs),h}
+```
+```julia
+@constraint(dtr.model, GasStorageBalance[(n,gs)=Nodes_GasStorages,h=Hours2],
+    H2_GS_L[(n,gs), h] == H2_GS_L[(n,gs), h-1] + H2_GS_IN[(n,gs), h] - H2_GS_OUT[(n,gs), h]
+);
+```
+
+*Hydrogen: gas storage balance at first time-steps*: for each ``(n,gs) \in `` `Nodes_GasStorages`,
+```math
+H2^{\text{GS\_L}}_{(n,gs),1} = \sigma_0 \; N^{\text{GS}}_{(n,gs)} + H2^{\text{GS\_IN}}_{(n,gs),1} - H2^{\text{GS\_OUT}}_{(n,gs),1},
+```
+```julia
+@constraint(dtr.model, GasStorageBalanceFirstHours[(n,gs)=Nodes_GasStorages],
+    H2_GS_L[(n,gs), Hours[1]] == StartLevel[n,gs] * ( N_GS[(n,gs)] + CapAdd[:N_GS][(n,gs)]) + H2_GS_IN[(n,gs),Hours[1]] - H2_GS_OUT[(n,gs),Hours[1]]  # 
+);
+```
+
+*Hydrogen: gas storage end level equal to initial level*: for each ``(n,gs) \in `` `Nodes_GasStorages`,
+```math
+H2^{\text{GS\_L}}_{(n,gs),1} = \sigma_0 \; N^{\text{GS}}_{(n,gs)}
+```
+```julia
+@constraint(dtr.model, GasStorageLevelEnd[(n,gs)=Nodes_GasStorages],
+    H2_GS_L[(n,gs), Hours[end]] == StartLevel[n,gs] * ( N_GS[(n,gs)] + CapAdd[:N_GS][(n,gs)])
 );
 ```

@@ -840,7 +840,7 @@ function build_h2_constraints(dtr::DieterModel)
               
     @info "Hydrogen: Variable upper bound on gas storage."
     @constraint(dtr.model, MaxLevelGasStorage[(n,gs)=Nodes_GasStorages,h=Hours],
-        H2_GS_L[(n,gs),h] <= N_GS[(n,gs)]  # + CapAdd[:N_GS][(n,p2g)] )
+        H2_GS_L[(n,gs),h] <= N_GS[(n,gs)] + CapAdd[:N_GS][(n,p2g)]
     );
 
     @constraint(dtr.model, GasStorageIn[(n,gs)=Nodes_GasStorages,h=Hours],
@@ -871,13 +871,13 @@ function build_h2_constraints(dtr::DieterModel)
 
     @info "Hydrogen: gas storage balance at first time-steps."
     @constraint(dtr.model, GasStorageBalanceFirstHours[(n,gs)=Nodes_GasStorages],
-        H2_GS_L[(n,gs), Hours[1]] == StartLevel[n,gs] * N_GS[(n,gs)] + H2_GS_IN[(n,gs),Hours[1]] - H2_GS_OUT[(n,gs),Hours[1]]  # + CapAdd[:N_GS][(n,p2g)] )
+        H2_GS_L[(n,gs), Hours[1]] == StartLevel[n,gs] * ( N_GS[(n,gs)] + CapAdd[:N_GS][(n,gs)] ) + H2_GS_IN[(n,gs),Hours[1]] - H2_GS_OUT[(n,gs),Hours[1]]
     );
 
     # End level equal to initial level
     @info "Hydrogen: gas storage end level equal to initial level."
     @constraint(dtr.model, GasStorageLevelEnd[(n,gs)=Nodes_GasStorages],
-        H2_GS_L[(n,gs), Hours[end]] == StartLevel[n,gs] * N_GS[(n,gs)]  # + CapAdd[:N_GS][(n,p2g)] )
+        H2_GS_L[(n,gs), Hours[end]] == StartLevel[n,gs] * ( N_GS[(n,gs)] + CapAdd[:N_GS][(n,gs)])
     );
 
     # next!(prog)
