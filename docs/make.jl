@@ -75,7 +75,7 @@ makedocs(
 deploydocs(
     target = "build",
     # dirname = "",
-    repo = "github.com/jd-foster/Dieter.jl.git",
+    repo = "github.com/csiro-energy-systems/Dieter.jl.git",
     branch = "gh-pages",
     devbranch = "dev",
     devurl = "dev",

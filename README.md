@@ -1,6 +1,6 @@
 # DIETER.jl
 
-[![In Development](https://img.shields.io/badge/docs-dev-blue.svg)](https://jd-foster.github.io/Dieter.jl/dev/)
+[![In Development](https://img.shields.io/badge/docs-dev-blue.svg)](https://csiro-energy-systems.github.io/Dieter.jl/dev/)
 
 [DIETER](http://www.diw.de/dieter) is the _Dispatch and Investment Evaluation Tool with Endogenous Renewables_, an open energy system model developed by the German Institute for Economic Research ([DIW Berlin](https://www.diw.de/en)). The model is structured as a cost-minimising [linear program](https://en.wikipedia.org/wiki/Linear_programming) that when solved to optimality will produce an hourly operation profile of an interconnected transmission system over a single year, including aspects such as
 - generator power output,
@@ -9,7 +9,7 @@
 - variable renewable energy utilisation, and
 - hydrogen electrolyser operation.
 
-The model also decides on cost-optimal capacity expansion of relevant model technologies relative to the year under consideration. A higher level module for programmatically constructing the required data model is enabled by [**STABLE.jl**](https://github.com/jd-foster/STABLE.jl).
+The model also decides on cost-optimal capacity expansion of relevant model technologies relative to the year under consideration. A higher level module for programmatically constructing the required data model is enabled by [**STABLE.jl**](https://github.com/csiro-energy-systems/STABLE.jl).
 
 This code repository holds a derivative version of DIETER written using the [Julia](https://julialang.org/) language and the [JuMP](https://github.com/jump-dev/JuMP.jl) algebraic modelling language (a Julia package). While the original version of DIETER is implemented in [GAMS](https://www.gams.com/), Julia/JuMP enables a free and open-source implementation. Linear programming (LP) solvers are required to compute optimal solutions, and both free/open-source and commercial solver can be freely interchanged using interfaces via JuMP (commercial solvers such as the Gurobi LP solver may required for obtaining reasonable run times when solving large-scale problems).
 
@@ -19,11 +19,11 @@ In keeping with the original version, **DIETER.jl** is open source and may be fr
 
 ## Model code
 
-For a quick overview, the model code can be directly viewed in the [model.jl](https://github.com/jd-foster/Dieter.jl/blob/dev/src/model.jl) file.
+For a quick overview, the model code can be directly viewed in the [model.jl](https://github.com/csiro-energy-systems/Dieter.jl/blob/dev/src/model.jl) file.
 
 Note that the model is (currently) lacking some features which exist in the GAMS model such as the representation of reserves and prosumage.
 
-General utility functions for handling `DataFrame`s, `Dict`s and translations from JuMP data structures, useful independently of DIETER.jl, are to be found in the [util.jl](https://github.com/jd-foster/Dieter.jl/blob/dev/src/util.jl) file.
+General utility functions for handling `DataFrame`s, `Dict`s and translations from JuMP data structures, useful independently of DIETER.jl, are to be found in the [util.jl](https://github.com/csiro-energy-systems/Dieter.jl/blob/dev/src/util.jl) file.
 
 ## Installation
 
