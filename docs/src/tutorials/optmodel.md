@@ -721,7 +721,7 @@ tol_EtoP = 0.01 ## Constraint tolerance for matching energy to power ratio
 
 *Storage: maximum inflow - no more than energy capacity minus level of last period*: for each ``(n,sto) \in `` `Nodes_Storages` and ``h \in `` `Hours`, ``h \neq 1``,
 ```math
-\rho_{(n,sto)}^{1/2} STO^{\text{IN}}_{(n,sto),h} \leq \widehat{SoC}^{\text{max}}_{sto} \left(  N^{\text{E}}_{(n,sto)} - STO^{\text{L}}_{(n,sto),h-1} \right)
+\rho_{(n,sto)}^{1/2} STO^{\text{IN}}_{(n,sto),h} \leq \widehat{SoC}^{\text{max}}_{sto} N^{\text{E}}_{(n,sto)} - STO^{\text{L}}_{(n,sto),h-1}
 ```
 
 ```julia

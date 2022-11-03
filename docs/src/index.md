@@ -38,14 +38,45 @@ General utility functions for handling `DataFrame`s, `Dict`s and translations fr
 
 ## Installation
 
-To install this as a Julia module, download this repository to a sub-folder in, for example, your home folder e.g. 
-```julia 
-dieter_path=joinpath(ENV["HOME"],"Dieter")
-```
-
-In the `julia` REPL, run
+This package is not registered on the Julia package system. To install this as a Julia module in a Julia REPL session, you can run the following package installation commands to install directly from the model code repository:
 ```julia
 import Pkg
-Pkg.add(Pkg.PackageSpec(path=dieter_path; rev="dev"))
+Pkg.add(Pkg.PackageSpec(url="https://github.com/csiro-energy-systems/Dieter.jl.git"; rev="main"))
 ```
-The argument `rev="dev"` selects the git branch to use; change this to use your own alternative branch as required.
+The argument `rev="main"` selects the git branch to use; change this to use your own alternative branch as required.
+
+### Example of a run script
+
+To run the model, one might use a script similar to the following, however _this currently requires user customisation to work_:
+```julia
+using Dieter
+using JuMP
+
+# select your favourite solver
+using HiGHS
+solver = HiGHS.Optimizer
+# using Gurobi
+# solver = Gurobi.Optimizer
+# using CPLEX
+# solver = CPLEX.Optimizer
+
+current_dir = @__DIR__
+datapath = joinpath(current_dir,"test","testdata")
+
+# set the Dieter parameters
+dtr = InitialiseDieterModel(DieterModel, Dict{String,Any}())
+dtr.settings[:datapath] = datapath
+
+initialise_data_file_dict!(dtr)
+check_files_exist(dtr.data["files"])
+
+dbfilepath = joinpath(datapath,"DTR_regions_test_data/DTR.db")
+dfDict = parse_data_to_model!(dtr; dataname=dbfilepath)
+
+build_model!(dtr)
+
+JuMP.set_optimizer(dtr.model, solver)
+solve_model!(dtr)
+
+generate_results!(dtr)
+```
