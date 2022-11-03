@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2019 diw-berlin, (c) 2021 CSIRO 
+Copyright (c) 2019 DIW Berlin
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,24 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+CSIRO Open Source Software Licence Agreement (variation of the BSD / MIT License)
+
+Copyright (c) 2022, Commonwealth Scientific and Industrial Research Organisation (CSIRO) ABN 41 687 119 230.
+All rights reserved. CSIRO is willing to grant you a licence to this Dieter.jl software on the following terms, except where otherwise indicated for third party material.
+Redistribution and use of this software in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+* Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+* Neither the name of CSIRO nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission of CSIRO.
+
+Except as expressly stated in this agreement and to the full extent permitted by applicable law, the software is provided "as-is". CSIRO makes no representations, warranties or conditions of any kind, express or implied, including but not limited to any representations, warranties or conditions regarding the contents or accuracy of the software, or of title, merchantability, fitness for a particular purpose, non-infringement, the absence of latent or other defects, or the presence or absence of errors, whether or not discoverable.
+To the full extent permitted by applicable law, in no event shall CSIRO be liable on any legal theory (including, without limitation, in an action for breach of contract, negligence or otherwise) for any claim, loss, damages or other liability howsoever incurred.  Without limiting the scope of the previous sentence the exclusion of liability shall include: Loss of production or operation time, loss, damage or corruption of data or records; or loss of anticipated savings, opportunity, revenue, profit or goodwill, or other economic loss; or any special, incidental, indirect, consequential, punitive or exemplary damages, arising out of or in connection with this agreement, access of the software or any other dealings with the software, even if CSIRO has been advised of the possibility of such claim, loss, damages or other liability.
+Applicable legislation such as the Australian Consumer Law may apply representations, warranties, or conditions, or imposes obligations or liability on CSIRO that cannot be excluded, restricted or modified to the full extent set out in the express terms of this clause above "consumer guarantees".  To the extent that such consumer guarantees continue to apply, then to the full extent permitted by the applicable legislation, the liability of CSIRO under the relevant consumer guarantee is limited (where permitted at CSIRO's option) to one of following remedies or substantially equivalent remedies:
+(a)               the replacement of the software, the supply of equivalent software, or supplying relevant services again;
+(b)               the repair of the software;
+(c)               the payment of the cost of replacing the software, of acquiring equivalent software, having the relevant services supplied again, or having the software repaired.
+In this clause, CSIRO includes any third party author or owner of any part of the software or material distributed with it.  CSIRO may enforce any rights on behalf of the relevant third party.
+
+Third Party Components
+No third party components are distributed with the Software, but some third party components are required to be installed to run this code.  Required third party software may be identified in separate files distributed with the Software.
