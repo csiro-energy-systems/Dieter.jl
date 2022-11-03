@@ -78,7 +78,7 @@ deploydocs(
     repo = "github.com/csiro-energy-systems/Dieter.jl.git",
     branch = "gh-pages",
     devbranch = "main",
-    devurl = "main",
+    devurl = "dev",
     # versions = ["v#.#"],
     # versions = ["stable" => "v^", "v#.#"],
     # deploy_config = Documenter.GitHubActions(),
