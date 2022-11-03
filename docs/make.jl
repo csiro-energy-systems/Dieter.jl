@@ -79,7 +79,7 @@ deploydocs(
     branch = "gh-pages",
     devbranch = "main",
     devurl = "dev",
-    versions = ["main" => "main", devurl => devurl],
+    versions = ["main" => "main", "dev" => "dev"],
     # versions = ["v#.#"],
     # versions = ["stable" => "v^", "v#.#"],
     # deploy_config = Documenter.GitHubActions(),
