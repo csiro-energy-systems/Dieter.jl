@@ -23,7 +23,7 @@ The latest documentation can be found [here](https://csiro-energy-systems.github
 
 The *Dieter.jl* Julia/JuMP package has been developed at [CSIRO](https://www.csiro.au) within the Energy Systems research program.
 
-Thanks to Mario Kendziorski for an earlier initial version, as well as Wolf-Peter Schill of DIW Berlin.
+Thanks to Mario Kendziorski for an earlier [initial Julia version](https://github.com/diw-berlin/Dieter.jl), as well as Wolf-Peter Schill and Alexander Zerrahn at DIW Berlin for the [original GAMS version](https://gitlab.com/diw-evu/dieter_public/dietergms).
 
 The CSIRO maintainer of this package is James Foster.
 
