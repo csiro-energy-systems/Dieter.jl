@@ -856,7 +856,7 @@ H2^{\text{GS\_L}}_{(n,gs),1} = \sigma_0 \; N^{\text{GS}}_{(n,gs)} + H2^{\text{GS
 
 *Hydrogen: gas storage end level equal to initial level*: for each ``(n,gs) \in `` `Nodes_GasStorages`,
 ```math
-H2^{\text{GS\_L}}_{(n,gs),1} = \sigma_0 \; N^{\text{GS}}_{(n,gs)}
+H2^{\text{GS\_L}}_{(n,gs),end} = \sigma_0 \; N^{\text{GS}}_{(n,gs)}
 ```
 ```julia
 @constraint(dtr.model, GasStorageLevelEnd[(n,gs)=Nodes_GasStorages],
