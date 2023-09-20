@@ -284,8 +284,8 @@ function build_model!(dtr::DieterModel)
     @constraint(m, ObjectiveFunction,
 cost_scaling*(sum(MarginalCost[n,t] * G[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
 
-            + LoadIncreaseCost[n,t] * sum(G_UP[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours2)
-            + LoadDecreaseCost[n,t] * sum(G_DO[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
+            + sum(LoadIncreaseCost[n,t] * G_UP[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours2)
+            + sum(LoadDecreaseCost[n,t] * G_DO[(n,t),h] for (n,t) in Nodes_Dispatch, h in Hours)
 
             # + sum(CurtailmentCost * CU[(n,t),h] for (n,t) in Nodes_NonDispatch, h in Hours)
 
@@ -808,11 +808,11 @@ function build_h2_constraints(dtr::DieterModel)
         sum(H2_P2G[(n,p2g),h] for h in Hours) >= H2Demand[n,p2g]
     );
 
-    # @info "Hydrogen: Minimum monthly lower bound on power-to-gas for PEM tech."
-    # @constraint(dtr.model, MinMonthlyP2G_PEM[(n,p2g)=Nodes_P2G_PEM, mth=1:12],
-    #     sum(H2_P2G[(n,p2g),h] for h in Hours if HoursToMonths[h] == mth)
-    #         >= (H2Demand[n,p2g]/periods)*sum(1.0 for h in Hours if HoursToMonths[h] == mth)
-    # );
+    @info "Hydrogen: Minimum monthly lower bound on power-to-gas for PEM tech."
+    @constraint(dtr.model, MinMonthlyP2G_PEM[(n,p2g)=Nodes_P2G_PEM, mth=1:12],
+        sum(H2_P2G[(n,p2g),h] for h in Hours if HoursToMonths[h] == mth)
+            >= (H2Demand[n,p2g]/periods)*sum(1.0 for h in Hours if HoursToMonths[h] == mth)
+    );
 
     @info "Hydrogen: Constant hourly lower bound on power-to-gas for AE tech."
     @constraint(dtr.model, MinHourlyP2G_AE[(n,p2g)=Nodes_P2G_AE, h=Hours],
