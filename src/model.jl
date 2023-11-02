@@ -782,6 +782,9 @@ function build_h2_constraints(dtr::DieterModel)
     # H2Demand = coalesce((dtr.settings[:h2]*1e6)/hoursInYear,0)
     H2Demand = dtr.parameters[:H2Demand] # Units: MWh / year for a given Node and P2G tech.
 
+    node_h2_system_dict = dtr.parameters[:node_h2_system_dict]
+    SuperNodes = Set(keys(H2Demand))
+
     CapAdd = dtr.parameters[:CapAdd]
 
     AE_Capacity_Factor_LB = dtr.settings[:ae_capacity_factor_lb] # e.g 0.2 means must produce at least 20% of hourly quota each hour.
@@ -803,25 +806,31 @@ function build_h2_constraints(dtr::DieterModel)
     N_G2P = dtr.model.obj_dict[:N_G2P]
     N_GS = dtr.model.obj_dict[:N_GS]
 
-    @info "Hydrogen: Minimum yearly lower bound on power-to-gas."
-    @constraint(dtr.model, MinYearlyP2G[(n,p2g)=Nodes_P2G],
-        sum(H2_P2G[(n,p2g),h] for h in Hours) >= H2Demand[n,p2g]
-    );
+    # @info "Hydrogen: Minimum yearly lower bound on power-to-gas."
+    # @constraint(dtr.model, MinYearlyP2G[(n,p2g)=Nodes_P2G],
+    #     sum(H2_P2G[(n,p2g),h] for h in Hours) >= H2Demand[n,p2g]
+    # );
 
     @info "Hydrogen: Minimum monthly lower bound on power-to-gas for PEM tech."
-    @constraint(dtr.model, MinMonthlyP2G_PEM[(n,p2g)=Nodes_P2G_PEM, mth=1:12],
+    @constraint(dtr.model, MinMonthlyP2G_PEM[snode=SuperNodes, mth=1:12],
+    sum(
         sum(H2_P2G[(n,p2g),h] for h in Hours if HoursToMonths[h] == mth)
-            >= (H2Demand[n,p2g]/periods)*sum(1.0 for h in Hours if HoursToMonths[h] == mth)
+            for (n,p2g) in Nodes_P2G_PEM if node_h2_system_dict[n] == snode
+        ) >= (H2Demand[snode]/periods)*sum(1.0 for h in Hours if HoursToMonths[h] == mth)
     );
 
     @info "Hydrogen: Constant hourly lower bound on power-to-gas for AE tech."
-    @constraint(dtr.model, MinHourlyP2G_AE[(n,p2g)=Nodes_P2G_AE, h=Hours],
-        H2_P2G[(n,p2g),h] >= AE_Capacity_Factor_LB*(H2Demand[n,p2g]/periods)
+    @constraint(dtr.model, MinHourlyP2G_AE[snode=SuperNodes, h=Hours],
+        sum(
+            H2_P2G[(n,p2g),h] for (n,p2g) in Nodes_P2G_AE if node_h2_system_dict[n] == snode
+        ) >= AE_Capacity_Factor_LB*(H2Demand[snode]/periods)
     );
 
     @info "Hydrogen: Constant hourly lower bound on power-to-gas for PEM tech."
-    @constraint(dtr.model, MinHourlyP2G_PEM[(n,p2g)=Nodes_P2G_PEM, h=Hours],
-        H2_P2G[(n,p2g),h] >= PEM_Capacity_Factor_LB*(H2Demand[n,p2g]/periods)
+    @constraint(dtr.model, MinHourlyP2G_PEM[snode=SuperNodes, h=Hours],
+        sum(
+            H2_P2G[(n,p2g),h] for (n,p2g) in Nodes_P2G_PEM if node_h2_system_dict[n] == snode
+        ) >= PEM_Capacity_Factor_LB*(H2Demand[snode]/periods)
     );
 
     @info "Hydrogen: Variable upper bound on power-to-gas."
