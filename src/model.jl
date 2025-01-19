@@ -507,7 +507,7 @@ cost_scaling*(sum(InvestmentCost[n,t] * N_TECH[(n,t)] for (n,t) in Nodes_Techs_N
 
     if !(isempty(keys(MinStableGen)))
         @info "Minimum stable generation levels"
-        @constraint(m, MinStableGeneration[(n,t)=keys(MinStableGen), h=Hours; !(MinStableGen[n,t] |> ismissing)],
+        @constraint(m, MinStableGeneration[(n,t)=keys(MinStableGen), h=Hours; !(MinStableGen[n,t] |> ismissing) && (n,t) in Nodes_Techs],
             G[(n,t),h] >= MinStableGen[n,t] * CapacityDerating[n,t,h] * time_ratio * (N_TECH[(n,t)] + CapAdd[:N_TECH][(n,t)])
         );
         ## Average generation version:

@@ -326,7 +326,7 @@ function parse_availibility!(dtr::DieterModel; check_normalisation::Bool=true)
 
     if !isempty( setdiff(dtr.sets[:Nodes_Avail_Techs],dtr.sets[:Nodes_Techs]) )
           println(setdiff(dtr.sets[:Nodes_Avail_Techs],dtr.sets[:Nodes_Techs]))
-          error("Available trace data includes a technology an excluded region.")
+          @warn "Available trace data includes a technology an excluded region."
     end
 
     return nothing
